@@ -1,0 +1,23 @@
+[project]
+
+authors = [{ name = "David Henry", email = "david.henry3@health.nsw.gov.au" }]
+description = "Tools for CT image quality quantification and analysis."
+name = "pyct"
+version = "1.0.0"
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = ["numpy", "pydicom", "opencv-python", "scipy", "packaging"]
+
+[tool.setuptools.packages.find]
+include = ["pyct"]
+where = ["."]
+
+[project-urls]
+"Homepage" = "https://github.com/dhen2714/CTIQ"
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools"]
