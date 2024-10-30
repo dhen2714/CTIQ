@@ -101,9 +101,56 @@ class AxialSeries:
         else:
             raise StopIteration
 
-    def get_array(self) -> np.ndarray:
+    def get_array(self, rescale: bool = True) -> np.ndarray:
+        """
+        Convert the DICOM pixel data into a 3D numpy array.
+
+        Args:
+            rescale (bool, optional): If True, applies the rescale slope and
+                intercept to convert to proper CT numbers (Hounsfield Units).
+                Defaults to True.
+
+        Returns:
+            np.ndarray: 3D array of pixel data, optionally rescaled to HU
+        """
         array3d = []
         for dcm in self:
-            array3d.append(dcm.pixel_array)
+            # Get raw pixel array
+            pixel_array = dcm.pixel_array
+
+            if rescale:
+                # Get rescale parameters
+                rescale_slope = float(dcm.get((0x0028, 0x1053), 1.0).value)
+                rescale_intercept = float(dcm.get((0x0028, 0x1052), 0.0).value)
+
+                # Convert to float to avoid potential integer overflow
+                pixel_array = pixel_array.astype(float)
+
+                # Apply rescale formula: HU = pixel_value * slope + intercept
+                pixel_array = pixel_array * rescale_slope + rescale_intercept
+
+            array3d.append(pixel_array)
 
         return np.array(array3d)
+
+    def get_slice_hu(self, index: int) -> np.ndarray:
+        """
+        Get a single slice converted to Hounsfield Units.
+
+        Args:
+            index (int): Index of the slice to retrieve
+
+        Returns:
+            np.ndarray: 2D array of pixel data in Hounsfield Units
+        """
+        dcm = self[index]
+        pixel_array = dcm.pixel_array.astype(float)
+
+        # Get rescale parameters
+        rescale_slope = float(dcm.get((0x0028, 0x1053), 1.0).value)
+        rescale_intercept = float(dcm.get((0x0028, 0x1052), 0.0).value)
+
+        # Apply rescale formula: HU = pixel_value * slope + intercept
+        hu_array = pixel_array * rescale_slope + rescale_intercept
+
+        return hu_array
