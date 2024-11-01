@@ -1,8 +1,19 @@
 import numpy as np
 import pydicom
+from dataclasses import dataclass
 from pathlib import Path
+import warnings
 
 IMAGE_POS_PATIENT = (0x0020, 0x0032)
+
+
+@dataclass
+class SliceError:
+    """Container for slice loading/validation errors"""
+
+    file_path: str
+    error: Exception
+    message: str
 
 
 class AxialSeries:
@@ -25,6 +36,11 @@ class AxialSeries:
             custom tag names to their corresponding DICOM tag locations (group, element).
             The extracted values will be stored in the `custom_tags` attribute.
             Defaults to None.
+        skip_dimension_mismatch: If True, skip slices with mismatched dimensions
+                                If False, raise ValueError on dimension mismatch
+        validate_dimensions: If False, skips dimension validation entirely for
+                            better performance. Use only when confident all
+                            slices have matching dimensions.
 
     Attributes:
         slice_locations (list[float]): The sorted list of slice locations.
@@ -41,23 +57,53 @@ class AxialSeries:
         directory: str | Path,
         load_images: bool = True,
         custom_tags: dict[str, tuple[int, int]] = None,
+        skip_dimension_mismatch: bool = True,
+        validate_dimensions: bool = True,
     ) -> None:
         self._slices = []
         self.slice_locations = []
         self.file_paths = []
         self.errors = []
+        self.dimension_errors = []
         self.custom_tags = {}
+        self.expected_shape = None
+
         if custom_tags:
             for key in custom_tags.keys():
                 self.custom_tags[key] = []
 
-        for dir_item in Path(directory).iterdir():
+        if validate_dimensions and load_images:
+            # Use the more thorough validation process
+            self._load_with_validation(
+                directory, load_images, skip_dimension_mismatch, custom_tags
+            )
+        else:
+            # Fast path: skip dimension validation
+            self._load_without_validation(directory, load_images, custom_tags)
 
+    def _load_without_validation(
+        self,
+        directory: str | Path,
+        load_images: bool,
+        custom_tags: dict[str, tuple[int, int]] = None,
+    ) -> None:
+        """Fast loading path that skips dimension validation."""
+        for dir_item in Path(directory).iterdir():
             try:
                 dcm = pydicom.dcmread(dir_item, stop_before_pixels=(not load_images))
+
+                # Set expected_shape from first slice with pixel data
+                if (
+                    load_images
+                    and self.expected_shape is None
+                    and hasattr(dcm, "pixel_array")
+                ):
+                    self.expected_shape = dcm.pixel_array.shape
+
                 self._slices.append(dcm)
                 self.slice_locations.append(float(dcm[IMAGE_POS_PATIENT].value[2]))
                 self.file_paths.append(str(dir_item))
+
                 if custom_tags:
                     for key, val in custom_tags.items():
                         tag = pydicom.tag.Tag(val[0], val[1])
@@ -69,6 +115,10 @@ class AxialSeries:
             except Exception as e:
                 self.errors.append((str(dir_item), e))
 
+        if not self._slices:
+            raise ValueError(f"No valid DICOM slices could be loaded from {directory}")
+
+        # Sort slices by location
         sorted_indices = np.argsort(self.slice_locations).astype(int)
         self._slices = np.array(self._slices)[sorted_indices]
         self.slice_locations = np.array(self.slice_locations)[sorted_indices]
@@ -76,6 +126,143 @@ class AxialSeries:
         if custom_tags:
             for key, val in self.custom_tags.items():
                 self.custom_tags[key] = np.array(val)[sorted_indices]
+
+    def _load_with_validation(
+        self,
+        directory: str | Path,
+        load_images: bool,
+        skip_dimension_mismatch: bool,
+        custom_tags: dict[str, tuple[int, int]] = None,
+    ) -> None:
+        dimension_counts = {}
+        total_files = 0
+        for dir_item in Path(directory).iterdir():
+            try:
+                dcm = pydicom.dcmread(dir_item, stop_before_pixels=(not load_images))
+                if hasattr(dcm, "pixel_array"):
+                    shape = tuple(dcm.pixel_array.shape)
+                    if shape not in dimension_counts:
+                        dimension_counts[shape] = []
+                    dimension_counts[shape].append((dcm, dir_item))
+                    total_files += 1
+            except Exception as e:
+                self.errors.append((str(dir_item), e))
+
+        if not dimension_counts:
+            raise ValueError(
+                f"No valid DICOM files with pixel data found in {directory}"
+            )
+
+        # Determine the most common dimensions
+        most_common_shape = max(dimension_counts.items(), key=lambda x: len(x[1]))[0]
+        most_common_count = len(dimension_counts[most_common_shape])
+
+        # Calculate percentage of slices with most common dimensions
+        consistency_percentage = (most_common_count / total_files) * 100
+
+        if consistency_percentage < 50:
+            dimension_str = "\n".join(
+                [
+                    f"  {shape}: {len(slices)} slices"
+                    for shape, slices in dimension_counts.items()
+                ]
+            )
+            raise ValueError(
+                f"No consistent slice dimensions found. Dimension distribution:\n{dimension_str}"
+            )
+
+        self.expected_shape = most_common_shape
+
+        # Second pass: process all slices using the determined expected dimensions
+        for shape, slice_info in dimension_counts.items():
+            for dcm, dir_item in slice_info:
+                if shape != self.expected_shape:
+                    error = SliceError(
+                        file_path=str(dir_item),
+                        error=ValueError(
+                            f"Dimension mismatch: expected {self.expected_shape}, got {shape}"
+                        ),
+                        message=f"Slice dimensions {shape} do not match expected dimensions {self.expected_shape}",
+                    )
+                    self.dimension_errors.append(error)
+                    if not skip_dimension_mismatch:
+                        raise error.error
+                    continue
+
+                try:
+                    self._slices.append(dcm)
+                    self.slice_locations.append(float(dcm[IMAGE_POS_PATIENT].value[2]))
+                    self.file_paths.append(str(dir_item))
+
+                    if custom_tags:
+                        for key, val in custom_tags.items():
+                            tag = pydicom.tag.Tag(val[0], val[1])
+                            tagval = dcm.get(tag, None).value
+                            self.custom_tags[key].append(
+                                str(tagval) if tagval is not None else None
+                            )
+
+                except Exception as e:
+                    error = SliceError(
+                        file_path=str(dir_item),
+                        error=e,
+                        message=f"Error loading slice: {str(e)}",
+                    )
+                    self.errors.append((str(dir_item), e))
+
+        if not self._slices:
+            raise ValueError(f"No valid DICOM slices could be loaded from {directory}")
+
+        if self.dimension_errors:
+            warnings.warn(
+                f"Skipped {len(self.dimension_errors)} slices due to dimension mismatch. "
+                f"Using most common dimensions {self.expected_shape} "
+                f"({consistency_percentage:.1f}% of slices). "
+                f"Use .dimension_error_report() to see details."
+            )
+
+        # Sort slices by location
+        sorted_indices = np.argsort(self.slice_locations).astype(int)
+        self._slices = np.array(self._slices)[sorted_indices]
+        self.slice_locations = np.array(self.slice_locations)[sorted_indices]
+        self.file_paths = np.array(self.file_paths)[sorted_indices].astype(str)
+        if custom_tags:
+            for key, val in self.custom_tags.items():
+                self.custom_tags[key] = np.array(val)[sorted_indices]
+
+    def get_dimension_error_report(self) -> str:
+        """
+        Generate a detailed report of any dimension mismatches.
+
+        Returns:
+            str: A formatted report of dimension errors
+        """
+        if not self.dimension_errors:
+            return "No dimension errors found."
+
+        report = [f"Found {len(self.dimension_errors)} dimension errors:"]
+        report.append(f"Expected dimensions: {self.expected_shape}")
+
+        # Group errors by dimension
+        dimension_groups = {}
+        for error in self.dimension_errors:
+            # Extract dimensions from error message
+            import re
+
+            dims = re.search(r"got \(([\d,\s]+)\)", error.message)
+            if dims:
+                dims_tuple = tuple(map(int, dims.group(1).split(",")))
+                if dims_tuple not in dimension_groups:
+                    dimension_groups[dims_tuple] = []
+                dimension_groups[dims_tuple].append(error.file_path)
+
+        report.append("\nError summary by dimensions:")
+        for dims, files in dimension_groups.items():
+            report.append(f"\nDimensions {dims}: {len(files)} files")
+            for file_path in files:
+                report.append(f"  - {file_path}")
+
+        return "\n".join(report)
 
     @property
     def pixel_size(self):
