@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["pyct"]
+include = ["pyct", "pyct.phantoms"]
 where = ["."]
 
 [project-urls]
