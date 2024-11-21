@@ -3,6 +3,15 @@ from dataclasses import dataclass
 
 
 @dataclass
+class ContrastInsertROI:
+    name: str
+    roi: np.ndarray
+    pixel_size_mm: tuple[float]
+    rod_centre: tuple[float]
+    rod_radius_mm: float
+
+
+@dataclass
 class ROIBounds:
     """Row, column, start, end indices for defining a rectangular ROI within an array."""
 
