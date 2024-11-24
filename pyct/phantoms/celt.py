@@ -1,8 +1,13 @@
 from ..processing import circle_centre_subpixel
-from ..roi_tools import get_roi_from_centre_pixel, ContrastInsertROI
+from ..roi_tools import (
+    get_roi,
+    get_roi_bounds_from_centre_pixel,
+    ROIBounds,
+)
 from skimage.transform import rescale
 from skimage.feature import match_template
 from skimage.filters import gaussian
+import pandas as pd
 import numpy as np
 
 INSERT_DIAMETER_MM = 25
@@ -11,6 +16,12 @@ INSERT_ANGULAR_POSITION_DEG = 45
 TEMPLATE_SIZE_MM = 120
 TEMPLATE_PIX_SIZE = 0.1
 NPS_ROI_DIM_MM = 35
+
+
+class PhantomDetectionError(ValueError):
+    """Exception raised when phantom template cannot be reliably detected in an image."""
+
+    pass
 
 
 def _get_insert_inds(insert_centre_pos: tuple[float], FX: np.ndarray, FY: np.ndarray):
@@ -66,7 +77,12 @@ def get_phantom_centre(
         phantom_centre = np.where(result == result.max())
         phantom_centre = phantom_centre[0][0], phantom_centre[1][0]
     else:
-        phantom_centre = None
+        raise PhantomDetectionError(
+            f"Failed to detect phantom in image. Best correlation ({corr_val:.3f}) "
+            f"below threshold ({threshold}). This may indicate the image doesn't "
+            "contain the expected phantom or has poor contrast/quality."
+        )
+
     return phantom_centre
 
 
@@ -77,10 +93,12 @@ class Celt:
         pixel_array3d: np.ndarray,
         slice_locations: np.array,
         pixel_dim_mm: tuple[float],
+        template_match_threshold: float = 0.5,
     ) -> None:
         self.array = pixel_array3d
         self.slice_locations = slice_locations
         self.pixel_dim_mm = pixel_dim_mm
+        self.match_threshold = template_match_threshold
         self.slice_idx_2_template_centre = dict()
         template = get_insert_template()
         # Rescale the template to the pixel size of the image
@@ -94,106 +112,134 @@ class Celt:
         self.background_means = dict()
         self.background_stddevs = dict()
 
-    def get_nps_rois(
-        self, slice_index: int | list[int], match_threshold: float = 0.5
-    ) -> np.ndarray:
-        """
-        Returns a 3D numpy array of ROIs.
-        ROIs are drawn over the uniform parts of the CeLT phantom, near the
-        tube inserts. For each slice, 4 ROIs will be returned.
-        ROIs can either be from a single slice or multiple slices.
-        """
-        if type(slice_index) is int:
-            nps_rois = self._get_nps_rois_single_slice(
-                slice_index, match_threshold=match_threshold
-            )
-            return np.array(nps_rois)
+        self.background_roi_bounds = None
+        self.contrast_insert_roi_bounds = None
 
-        nps_rois = []
-        for ind in slice_index:
-            nps_rois_one_slice = self._get_nps_rois_single_slice(
-                ind, match_threshold=match_threshold
-            )
-            nps_rois.extend(nps_rois_one_slice)
-        return np.array(nps_rois)
-
-    def _get_nps_rois_single_slice(
-        self, slice_index: int, match_threshold: float = 0.5
-    ) -> list[np.ndarray]:
-        nps_rois = []
-        axial_slice = self.array[slice_index]
-        if slice_index in self.slice_idx_2_template_centre.keys():
-            phantom_centre = self.slice_idx_2_template_centre[slice_index]
+    def measure_background(
+        self,
+        slice_indices: None | int | list[int] = None,
+        roi_bounds: None | list[ROIBounds] = None,
+    ) -> pd.DataFrame:
+        if slice_indices is None:
+            slice_indices = range(len(self.array))
+        elif isinstance(slice_indices, int):
+            slice_indices = [slice_indices]
         else:
-            phantom_centre = get_phantom_centre(
-                axial_slice, self.template, threshold=match_threshold
-            )
-            self.slice_idx_2_template_centre[slice_index] = phantom_centre
+            slice_indices = np.array(slice_indices)
+        # Initialise roi bounds for background if they haven't been set previously
+        self.background_roi_bounds = roi_bounds
 
-        if phantom_centre:
-            top = phantom_centre[0] - self.nps_roi_offset, phantom_centre[1]
-            left = phantom_centre[0], phantom_centre[1] + self.nps_roi_offset
-            bottom = phantom_centre[0] + self.nps_roi_offset, phantom_centre[1]
-            right = phantom_centre[0], phantom_centre[1] - self.nps_roi_offset
-
-            for nps_roi_centre in [top, left, bottom, right]:
-                roi = get_roi_from_centre_pixel(
-                    axial_slice, nps_roi_centre, self.nps_roi_dim
+        measurements = []
+        for slice_index in slice_indices:
+            rois = []
+            slice_array = self.array[slice_index]
+            if self.background_roi_bounds is None:
+                self.background_roi_bounds = self.find_background_roi_bounds(
+                    slice_index
                 )
-                nps_rois.append(roi)
-
-            if slice_index not in self.background_means.keys():
-                self.background_means[slice_index] = np.array(nps_rois).mean()
-                self.background_stddevs[slice_index] = np.array(nps_rois).std()
-        else:
-            nps_rois = None
-        return nps_rois
-
-    def get_ttf_rois(
-        self, slice_index: int, match_threshold: float = 0.5
-    ) -> dict[str, ContrastInsertROI]:
-        """
-        CeLT phantom insert ROIs for TTF calculation. First ROI in output list
-        is centre, then top right, bottom right, bottom left, top left.
-        """
-        ttf_rois = dict()
-        insert_radius_px = (INSERT_DIAMETER_MM / 2) / self.pixel_dim_mm[0]
-        ttf_roi_dim = int(4 * insert_radius_px)
-        px_offset = self.nps_roi_offset
-        axial_slice = self.array[slice_index]
-        if slice_index in self.slice_idx_2_template_centre.keys():
-            centre = self.slice_idx_2_template_centre[slice_index]
-        else:
-            centre = get_phantom_centre(
-                axial_slice, self.template, threshold=match_threshold
-            )
-            self.slice_idx_2_template_centre[slice_index] = centre
-
-        if centre:
-            roi_centres = {
-                "centre": (centre[0], centre[1]),
-                "top_right": (centre[0] - px_offset, centre[1] + px_offset),
-                "bottom_right": (centre[0] + px_offset, centre[1] + px_offset),
-                "bottom_left": (centre[0] + px_offset, centre[1] - px_offset),
-                "top_left": (centre[0] - px_offset, centre[1] - px_offset),
+            for roi_bounds in self.background_roi_bounds:
+                roi = get_roi(slice_array, roi_bounds)
+                rois.append(roi)
+            rois = np.array(rois)
+            measurement = {
+                "mean": rois.mean(),
+                "standard_dev": rois.std(),
+                "max": rois.max(),
+                "min": rois.min(),
             }
-            for roi_name, roi_centre in roi_centres.items():
-                roi = get_roi_from_centre_pixel(axial_slice, roi_centre, ttf_roi_dim)
-                if slice_index not in self.background_means.keys():
-                    self._get_nps_rois_single_slice(slice_index)
-                # Subtracting background mean helps template matching
-                background_mean = self.background_means[slice_index]
-                subpixel_centre = circle_centre_subpixel(
-                    roi - background_mean, insert_radius_px, supersample_factor=5
-                )
-                ttfroi = ContrastInsertROI(
-                    name=f"{roi_name}_slice{slice_index}",
-                    roi=roi,
-                    pixel_size_mm=self.pixel_dim_mm[0],
-                    rod_centre=subpixel_centre,
-                    rod_radius_mm=(INSERT_DIAMETER_MM / 2),
-                )
-                ttf_rois[roi_name] = ttfroi
+            measurements.append(measurement)
+        return pd.DataFrame(measurements)
+
+    def find_background_roi_bounds(self, slice_index: int) -> list[ROIBounds]:
+        axial_slice = self.array[slice_index]
+        background_roi_bounds = []
+
+        phantom_centre = get_phantom_centre(
+            axial_slice, self.template, threshold=self.match_threshold
+        )
+
+        top = phantom_centre[0] - self.nps_roi_offset, phantom_centre[1]
+        left = phantom_centre[0], phantom_centre[1] + self.nps_roi_offset
+        bottom = phantom_centre[0] + self.nps_roi_offset, phantom_centre[1]
+        right = phantom_centre[0], phantom_centre[1] - self.nps_roi_offset
+
+        for background_roi_centre in [top, left, bottom, right]:
+            roi_bounds = get_roi_bounds_from_centre_pixel(
+                background_roi_centre, self.nps_roi_dim
+            )
+            background_roi_bounds.append(roi_bounds)
+        return background_roi_bounds
+
+    def measure_contrast_inserts(
+        self,
+        slice_indices: None | int | list[int] = None,
+        roi_bounds: None | list[ROIBounds] = None,
+    ) -> pd.DataFrame:
+        if slice_indices is None:
+            slice_indices = range(len(self.array))
+        elif isinstance(slice_indices, int):
+            slice_indices = [slice_indices]
         else:
-            ttf_rois = None
-        return ttf_rois
+            slice_indices = np.array(slice_indices)
+        # Initialise roi bounds for contrast inserts if they haven't been set previously
+        self.contrast_insert_roi_bounds = roi_bounds
+
+        measurements = []
+        for slice_index in slice_indices:
+            slice_measurements = {}
+            slice_array = self.array[slice_index]
+            if self.contrast_insert_roi_bounds is None:
+                self.contrast_insert_roi_bounds = self.find_contrast_insert_roi_bounds(
+                    slice_index
+                )
+            for i, roi_bounds in enumerate(self.contrast_insert_roi_bounds):
+                roi = get_roi(slice_array, roi_bounds)
+                measurement_key = f"roi_{i}"
+                slice_measurements[f"{measurement_key}_mean"] = roi.mean()
+                slice_measurements[f"{measurement_key}_standard_dev"] = roi.std()
+                slice_measurements[f"{measurement_key}_max"] = roi.max()
+                slice_measurements[f"{measurement_key}_min"] = roi.min()
+
+            measurements.append(slice_measurements)
+
+        return pd.DataFrame(measurements, index=slice_indices)
+
+    def find_contrast_insert_roi_bounds(self, slice_index: int) -> list[ROIBounds]:
+        axial_slice = self.array[slice_index]
+        insert_radius_px = (INSERT_DIAMETER_MM / 2) / self.pixel_dim_mm[0]
+        outer_contrast_insert_roi_dim = int(4 * insert_radius_px)
+        measurement_roi_dim = int(0.75 * insert_radius_px)
+        px_offset = self.nps_roi_offset
+
+        centre = get_phantom_centre(
+            axial_slice, self.template, threshold=self.match_threshold
+        )
+        background_mean = self.measure_background(slice_index).iloc[slice_index]["mean"]
+
+        roi_centres = {
+            "centre": (centre[0], centre[1]),
+            "top_right": (centre[0] - px_offset, centre[1] + px_offset),
+            "bottom_right": (centre[0] + px_offset, centre[1] + px_offset),
+            "bottom_left": (centre[0] + px_offset, centre[1] - px_offset),
+            "top_left": (centre[0] - px_offset, centre[1] - px_offset),
+        }
+        contrast_insert_roi_bounds = []
+        for roi_centre in roi_centres.values():
+            roi_bounds = get_roi_bounds_from_centre_pixel(
+                roi_centre, outer_contrast_insert_roi_dim
+            )
+            roi = get_roi(axial_slice, roi_bounds)
+
+            subpixel_centre = circle_centre_subpixel(
+                roi - background_mean, insert_radius_px, supersample_factor=5
+            )
+            new_centre = (
+                np.array(roi_centre) - outer_contrast_insert_roi_dim / 2
+            ) + np.array(subpixel_centre, dtype=int)
+            roi_bounds = get_roi_bounds_from_centre_pixel(
+                new_centre,
+                measurement_roi_dim,
+            )
+            contrast_insert_roi_bounds.append(roi_bounds)
+
+        return contrast_insert_roi_bounds
