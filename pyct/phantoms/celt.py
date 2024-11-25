@@ -124,7 +124,7 @@ class Celt:
     ) -> pd.DataFrame:
         if slice_indices is None:
             slice_indices = range(len(self.array))
-        elif isinstance(slice_indices, int):
+        elif isinstance(slice_indices, (int, np.integer)):
             slice_indices = [slice_indices]
         else:
             slice_indices = np.array(slice_indices)
@@ -179,7 +179,7 @@ class Celt:
     ) -> pd.DataFrame:
         if slice_indices is None:
             slice_indices = range(len(self.array))
-        elif isinstance(slice_indices, int):
+        elif isinstance(slice_indices, (int, np.integer)):
             slice_indices = [slice_indices]
         else:
             slice_indices = np.array(slice_indices)
