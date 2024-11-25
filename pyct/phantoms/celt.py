@@ -68,7 +68,9 @@ def get_phantom_centre(
     match between slice and template. template must have smaller dimensions than
     axial_slice.
     """
-    axial_slice = np.abs(axial_slice - axial_slice.mean())
+    # Attempt to only get mean of phantom HU vals
+    phantom_mask = (axial_slice > -200) & (axial_slice < 200)
+    axial_slice = np.abs(axial_slice - axial_slice[phantom_mask].mean())
     axial_slice = gaussian(axial_slice, sigma=2)
     result = match_template(axial_slice, template, pad_input=True)
     result = np.abs(result)
@@ -148,7 +150,7 @@ class Celt:
                 "min": rois.min(),
             }
             measurements.append(measurement)
-        return pd.DataFrame(measurements)
+        return pd.DataFrame(measurements, index=slice_indices)
 
     def find_background_roi_bounds(self, slice_index: int) -> list[ROIBounds]:
         axial_slice = self.array[slice_index]
@@ -214,7 +216,7 @@ class Celt:
         centre = get_phantom_centre(
             axial_slice, self.template, threshold=self.match_threshold
         )
-        background_mean = self.measure_background(slice_index).iloc[slice_index]["mean"]
+        background_mean = self.measure_background(slice_index).loc[slice_index]["mean"]
 
         roi_centres = {
             "centre": (centre[0], centre[1]),
