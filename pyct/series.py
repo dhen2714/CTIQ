@@ -58,7 +58,7 @@ class AxialSeries:
         load_images: bool = True,
         custom_tags: dict[str, tuple[int, int]] = None,
         skip_dimension_mismatch: bool = True,
-        validate_dimensions: bool = True,
+        validate_dimensions: bool = False,
     ) -> None:
         self._slices = []
         self.slice_locations = []
