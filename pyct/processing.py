@@ -60,6 +60,59 @@ def cartesian2polar(
     return r, theta
 
 
+def rebin_by_pitch(
+    xarr: np.ndarray,
+    yarr: np.ndarray,
+    pitch: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Rebin x and y arrays to a specified x-axis pitch (spacing).
+
+    Parameters:
+        xarr (np.ndarray): Original x-axis values
+        yarr (np.ndarray): Original y-axis values
+        pitch (float): Desired spacing between x values
+                      Must be larger than original x spacing.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: (xnew, ynew) Arrays with new binning
+
+    Raises:
+        ValueError: If pitch is smaller than original spacing
+    """
+    orig_spacing = np.mean(np.diff(xarr))
+    if pitch < orig_spacing:
+        raise ValueError(
+            f"Requested pitch ({pitch}) must be larger than "
+            f"original spacing ({orig_spacing})"
+        )
+
+    # Create bin edges at exact multiples of pitch
+    xmin, xmax = xarr.min(), xarr.max()
+    bin_edges = np.arange(xmin, xmax + pitch, pitch)
+
+    # Calculate bin centers (these will be our new x points)
+    xnew = bin_edges[:-1]
+
+    # Digitize original x values into bins
+    bin_indices = np.digitize(xarr, bin_edges)
+
+    # Calculate mean y for each bin
+    ynew = np.array(
+        [
+            np.mean(yarr[bin_indices == i]) if np.any(bin_indices == i) else np.nan
+            for i in range(1, len(bin_edges))
+        ]
+    )
+
+    # Remove any NaN values from gaps
+    valid = ~np.isnan(ynew)
+    xnew = xnew[valid]
+    ynew = ynew[valid]
+
+    return xnew, ynew
+
+
 def rebin(
     xarr: np.array, yarr: np.array, num_bins: int = 20
 ) -> tuple[np.array, np.array]:

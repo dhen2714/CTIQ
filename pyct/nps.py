@@ -1,5 +1,5 @@
 from .roi_tools import ROIBounds, get_roi
-from .processing import cartesian2polar, detrend, rebin, smooth
+from .processing import cartesian2polar, detrend, rebin_by_pitch, rebin, smooth
 import numpy as np
 from dataclasses import dataclass
 
@@ -38,42 +38,7 @@ class NPS1D:
         Raises:
             ValueError: If freq_pitch is smaller than original frequency spacing.
         """
-        orig_spacing = np.mean(np.diff(self.f))
-        if freq_pitch < orig_spacing:
-            raise ValueError(
-                f"Requested frequency pitch ({freq_pitch}) must be larger than "
-                f"original frequency spacing ({orig_spacing})"
-            )
-
-        # Create new frequency array with exact pitch spacing
-        fmin, fmax = self.f.min(), self.f.max()
-
-        # Create bin edges at exact multiples of freq_pitch
-        bin_edges = np.arange(fmin, fmax + freq_pitch, freq_pitch)
-
-        # Calculate bin centers (these will be our new frequency points)
-        fnew = bin_edges[:-1]  # + freq_pitch / 2
-
-        # Digitize original frequencies into bins
-        bin_indices = np.digitize(self.f, bin_edges)
-
-        # Calculate mean NPS for each bin
-        npsnew = np.array(
-            [
-                (
-                    np.mean(self.nps[bin_indices == i])
-                    if np.any(bin_indices == i)
-                    else np.nan
-                )
-                for i in range(1, len(bin_edges))
-            ]
-        )
-
-        # Remove any NaN values from gaps
-        valid = ~np.isnan(npsnew)
-        fnew = fnew[valid]
-        npsnew = npsnew[valid]
-
+        fnew, npsnew = rebin_by_pitch(self.f, self.nps, freq_pitch)
         return NPS1D(npsnew, fnew)
 
     @property
