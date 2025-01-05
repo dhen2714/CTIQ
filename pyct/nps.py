@@ -11,8 +11,69 @@ class NPS1D:
     nps: np.ndarray
     f: np.ndarray
 
-    def rebin(self, n):
+    def rebin_by_count(self, n):
+        """
+        Rebin the NPS to a specified number of bins.
+
+        Parameters:
+            n (int): Number of bins for rebinning.
+
+        Returns:
+            NPS1D: Rebinned noise power spectrum with n bins.
+        """
         fnew, npsnew = rebin(self.f, self.nps, num_bins=n)
+        return NPS1D(npsnew, fnew)
+
+    def rebin_by_pitch(self, freq_pitch: float) -> "NPS1D":
+        """
+        Rebin the NPS to a specified frequency pitch.
+
+        Parameters:
+            freq_pitch (float): Desired frequency pitch (e.g., 0.1 mm^-1).
+                              Must be larger than the original frequency spacing.
+
+        Returns:
+            NPS1D: Rebinned noise power spectrum with specified frequency pitch.
+
+        Raises:
+            ValueError: If freq_pitch is smaller than original frequency spacing.
+        """
+        orig_spacing = np.mean(np.diff(self.f))
+        if freq_pitch < orig_spacing:
+            raise ValueError(
+                f"Requested frequency pitch ({freq_pitch}) must be larger than "
+                f"original frequency spacing ({orig_spacing})"
+            )
+
+        # Create new frequency array with exact pitch spacing
+        fmin, fmax = self.f.min(), self.f.max()
+
+        # Create bin edges at exact multiples of freq_pitch
+        bin_edges = np.arange(fmin, fmax + freq_pitch, freq_pitch)
+
+        # Calculate bin centers (these will be our new frequency points)
+        fnew = bin_edges[:-1]  # + freq_pitch / 2
+
+        # Digitize original frequencies into bins
+        bin_indices = np.digitize(self.f, bin_edges)
+
+        # Calculate mean NPS for each bin
+        npsnew = np.array(
+            [
+                (
+                    np.mean(self.nps[bin_indices == i])
+                    if np.any(bin_indices == i)
+                    else np.nan
+                )
+                for i in range(1, len(bin_edges))
+            ]
+        )
+
+        # Remove any NaN values from gaps
+        valid = ~np.isnan(npsnew)
+        fnew = fnew[valid]
+        npsnew = npsnew[valid]
+
         return NPS1D(npsnew, fnew)
 
     @property
@@ -50,45 +111,93 @@ class NPS2D:
         fr, npsr = rebin(fr, npsr, num_bins=num_radial_samples)
         return NPS1D(npsr, fr)
 
-    def get_horizontal(self, num_slices: int = 15) -> NPS1D:
+    def get_horizontal(
+        self, num_slices: int = 15, exclude_zero_axis: bool = False
+    ) -> NPS1D:
         """
-        Returns 1D horizontal NPS. Averages over a stack in the centre of 2D NPS.
+        Returns one-sided 1D horizontal NPS. Averages over a stack in the centre of 2D NPS.
 
         Parameters:
             num_slices (int): Number of rows to average together.
+            exclude_zero_axis (bool): If True, excludes the fy=0 axis when averaging.
 
         Returns:
-            NPS1D: 1D horizontal noise power spectrum.
+            NPS1D: One-sided 1D horizontal noise power spectrum.
         """
-        num_rows, _ = self.nps.shape
-        centre_index = int(num_rows / 2)  # rounds down by default
-        return NPS1D(
-            self.nps[
-                centre_index - int(num_slices / 2) : centre_index + int(num_slices / 2),
-                :,
-            ].mean(axis=0),
-            self.fx,
-        )
+        num_rows, num_cols = self.nps.shape
+        centre_index = int(num_rows / 2)
+        half_slices = int(num_slices / 2)
 
-    def get_vertical(self, num_slices: int = 15) -> NPS1D:
+        # Define row indices to include
+        if exclude_zero_axis:
+            # Exclude the central row (fy=0 axis)
+            upper_rows = slice(centre_index + 1, centre_index + half_slices + 1)
+            lower_rows = slice(centre_index - half_slices, centre_index)
+            rows_to_average = np.concatenate(
+                [self.nps[lower_rows, :], self.nps[upper_rows, :]]
+            )
+        else:
+            # Include all rows in the range
+            rows_to_average = self.nps[
+                centre_index - half_slices : centre_index + half_slices, :
+            ]
+
+        # Calculate averaged horizontal NPS
+        horizontal_nps = rows_to_average.mean(axis=0)
+
+        # Convert to one-sided spectrum
+        mid_point = len(self.fx) // 2
+        positive_freqs = self.fx[mid_point:]
+        # Average the positive and negative frequency components
+        one_sided_nps = (
+            horizontal_nps[mid_point:] + horizontal_nps[mid_point - 1 :: -1]
+        ) / 2
+
+        return NPS1D(one_sided_nps, positive_freqs)
+
+    def get_vertical(
+        self, num_slices: int = 15, exclude_zero_axis: bool = False
+    ) -> NPS1D:
         """
-        Returns 1D horizontal NPS. Averages over a stack in the centre of 2D NPS.
+        Returns one-sided 1D vertical NPS. Averages over a stack in the centre of 2D NPS.
 
         Parameters:
             num_slices (int): Number of columns to average together.
+            exclude_zero_axis (bool): If True, excludes the fx=0 axis when averaging.
 
         Returns:
-            NPS1D: 1D vertical noise power spectrum.
+            NPS1D: One-sided 1D vertical noise power spectrum.
         """
-        _, num_cols = self.nps.shape
+        num_rows, num_cols = self.nps.shape
         centre_index = int(num_cols / 2)
-        return NPS1D(
-            self.nps[
-                :,
-                centre_index - int(num_slices / 2) : centre_index + int(num_slices / 2),
-            ].mean(axis=1),
-            self.fy,
-        )
+        half_slices = int(num_slices / 2)
+
+        # Define column indices to include
+        if exclude_zero_axis:
+            # Exclude the central column (fx=0 axis)
+            right_cols = slice(centre_index + 1, centre_index + half_slices + 1)
+            left_cols = slice(centre_index - half_slices, centre_index)
+            cols_to_average = np.concatenate(
+                [self.nps[:, left_cols], self.nps[:, right_cols]], axis=1
+            )
+        else:
+            # Include all columns in the range
+            cols_to_average = self.nps[
+                :, centre_index - half_slices : centre_index + half_slices
+            ]
+
+        # Calculate averaged vertical NPS
+        vertical_nps = cols_to_average.mean(axis=1)
+
+        # Convert to one-sided spectrum
+        mid_point = len(self.fy) // 2
+        positive_freqs = self.fy[mid_point:]
+        # Average the positive and negative frequency components
+        one_sided_nps = (
+            vertical_nps[mid_point:] + vertical_nps[mid_point - 1 :: -1]
+        ) / 2
+
+        return NPS1D(one_sided_nps, positive_freqs)
 
     @property
     def shape(self) -> tuple[int]:
