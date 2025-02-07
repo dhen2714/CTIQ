@@ -10,6 +10,8 @@ class NPS1D:
 
     nps: np.ndarray
     f: np.ndarray
+    num_rois: int = None  # Number of ROIs used to calculate NPS
+    roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
 
     def rebin_by_count(self, n):
         """
@@ -64,6 +66,8 @@ class NPS2D:
     nps: np.ndarray
     fx: np.array  # dimension across different columns
     fy: np.array  # dimension across different rows
+    num_rois: int = None  # Number of ROIs used to calculate NPS
+    roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
 
     def get_radial(self) -> NPS1D:
         """Returns radially averaged 1D NPS."""
@@ -74,7 +78,7 @@ class NPS2D:
         num_radial_samples = int(len(self.fx) / 2)
         fr, npsr = FR[nps_inds].flatten(), self.nps[nps_inds].flatten()
         fr, npsr = rebin(fr, npsr, num_bins=num_radial_samples)
-        return NPS1D(npsr, fr)
+        return NPS1D(npsr, fr, self.num_rois, self.roi_dimensions)
 
     def get_horizontal(
         self, num_slices: int = 15, exclude_zero_axis: bool = False
@@ -118,7 +122,7 @@ class NPS2D:
             horizontal_nps[mid_point:] + horizontal_nps[mid_point - 1 :: -1]
         ) / 2
 
-        return NPS1D(one_sided_nps, positive_freqs)
+        return NPS1D(one_sided_nps, positive_freqs, self.num_rois, self.roi_dimensions)
 
     def get_vertical(
         self, num_slices: int = 15, exclude_zero_axis: bool = False
@@ -162,7 +166,11 @@ class NPS2D:
             vertical_nps[mid_point:] + vertical_nps[mid_point - 1 :: -1]
         ) / 2
 
-        return NPS1D(one_sided_nps, positive_freqs)
+        return NPS1D(one_sided_nps, positive_freqs, self.num_rois, self.roi_dimensions)
+
+    def get_radial_frequency_grid(self) -> np.ndarray:
+        V, U = np.meshgrid(self.fy, self.fx)
+        return np.sqrt(U**2 + V**2)
 
     @property
     def shape(self) -> tuple[int]:
@@ -231,7 +239,7 @@ def nps2d_from_subrois(
     NPS = (pixel_dim_mm[0] * pixel_dim_mm[1]) / (nx * ny) * np.mean(nps_stack, axis=0)
     fx = np.fft.fftshift(np.fft.fftfreq(nx, pixel_dim_mm[1]))
     fy = np.fft.fftshift(np.fft.fftfreq(ny, pixel_dim_mm[0]))
-    return NPS2D(NPS, fx, fy)
+    return NPS2D(NPS, fx, fy, num_rois=M, roi_dimensions=(nx, ny))
 
 
 def calculate_nps2d_multiroi(
