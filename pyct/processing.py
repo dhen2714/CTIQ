@@ -192,10 +192,12 @@ def pixelate(float_val: float) -> int:
     return np.round(float_val).astype(int)
 
 
-def circle_template(circle_radius_px: float) -> np.ndarray:
+def circle_template(
+    circle_radius_px: float, template_padding_px: int = 10
+) -> np.ndarray:
     """Returns a circle matching template."""
     # Add a small border around the circle template
-    template_size = pixelate(2 * circle_radius_px + 10)
+    template_size = pixelate(2 * circle_radius_px + template_padding_px)
     # template = np.zeros((template_size, template_size))
     x, y = np.arange(template_size), np.arange(template_size)
     X, Y = np.meshgrid(x, y)
@@ -206,10 +208,15 @@ def circle_template(circle_radius_px: float) -> np.ndarray:
 
 
 def circle_centre_subpixel(
-    roi: np.ndarray, circle_radius_px: float, supersample_factor: int = 10
+    roi: np.ndarray,
+    circle_radius_px: float,
+    template_padding_px: int = 10,
+    supersample_factor: int = 10,
 ) -> tuple[float]:
     """Find subpixel centre location of a circle within the ROI."""
-    template = circle_template(supersample_factor * circle_radius_px)
+    template = circle_template(
+        supersample_factor * circle_radius_px, template_padding_px
+    )
     roi_upscaled = rescale(roi, supersample_factor)
     # roi_upscaled = rescale_pixels(roi_upscaled).astype(np.uint8)
     matched = match_template(roi_upscaled, template, pad_input=True)
