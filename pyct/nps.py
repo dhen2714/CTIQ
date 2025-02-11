@@ -68,6 +68,8 @@ class NPS2D:
     fy: np.array  # dimension across different rows
     num_rois: int = None  # Number of ROIs used to calculate NPS
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
+    pixel_value_mean: float = None
+    pixel_value_var: float = None
 
     def get_radial(self) -> NPS1D:
         """Returns radially averaged 1D NPS."""
@@ -239,7 +241,15 @@ def nps2d_from_subrois(
     NPS = (pixel_dim_mm[0] * pixel_dim_mm[1]) / (nx * ny) * np.mean(nps_stack, axis=0)
     fx = np.fft.fftshift(np.fft.fftfreq(nx, pixel_dim_mm[1]))
     fy = np.fft.fftshift(np.fft.fftfreq(ny, pixel_dim_mm[0]))
-    return NPS2D(NPS, fx, fy, num_rois=M, roi_dimensions=(nx, ny))
+    return NPS2D(
+        NPS,
+        fx,
+        fy,
+        num_rois=M,
+        roi_dimensions=(nx, ny),
+        pixel_value_mean=global_mean,
+        pixel_value_var=subrois.var(),
+    )
 
 
 def calculate_nps2d_multiroi(

@@ -1,9 +1,9 @@
 [project]
 
-authors = [{ name = "David Henry", email = "david.henry3@health.nsw.gov.au" }]
+authors = [{name = "David Henry", email = "david.henry3@health.nsw.gov.au"}]
 description = "Tools for CT image quality quantification and analysis."
 name = "pyct"
-version = "1.0.6"
+version = "1.0.7"
 
 classifiers = [
   "Programming Language :: Python :: 3",
