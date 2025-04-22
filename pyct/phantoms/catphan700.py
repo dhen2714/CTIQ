@@ -249,7 +249,7 @@ def get_CTP682_contrast_rois(
     slice_image: np.ndarray,
     phantom_centre_px: tuple[float, float],
     pixel_size_mm: tuple[float, float] = (1.0, 1.0),
-    roi_margin_factor: float = 3,
+    roi_margin_factor: float = 2.5,
     supersample_factor: int = 10,
 ) -> list[ContrastInsertROI]:
     """
