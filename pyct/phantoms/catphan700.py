@@ -127,7 +127,7 @@ def locate_all_segments(
 
 def create_CTP682_template(
     pixel_size_mm: float = 0.1,
-    template_padding_mm: float = -10,
+    template_padding_mm: float = -30,
 ) -> tuple[np.ndarray, tuple[float, float]]:
     """
     Creates a binary template for matching CTP682 insert in the Catphan700.
@@ -195,18 +195,50 @@ def create_CTP682_template(
 
 
 def get_CTP682_centre_pixel(
-    slice_image: np.ndarray, pixel_size_mm: tuple[float, float]
+    slice_image: np.ndarray,
+    pixel_size_mm: tuple[float, float],
+    template_match_padding_mm: float = -30,
+    corr_warning_level: float = 0.7,
 ) -> tuple[int, int]:
-    t = create_CTP682_template(pixel_size_mm[0])
+    """
+    Calculates the pixel index (row, column) centre of the CTP682 Catphan700 insert module.
+
+    Parameters
+    ----------
+    slice_image : np.ndarray
+        The image of the CTP682 module.
+    pixel_size_mm : tuple[float, float]
+        Pixel size in mm.
+    template_padding_mm : float
+        Additional padding around the template in mm. Negative values indicate that the template
+        needs to be cropped. To perform template matching, the size of the template must be
+        smaller than the dimensions of the slice_image.
+    corr_warning_level: float
+        Raises a warning if the template matching correlation is below this value.
+
+    Returns
+    -------
+    tuple[int, int]
+        Pixel coordinates of the centre of the CTP682 module.
+    """
+    t = create_CTP682_template(
+        pixel_size_mm[0], template_padding_mm=template_match_padding_mm
+    )
+    if t.shape[0] > slice_image.shape[0] or t.shape[1] > slice_image.shape[1]:
+        raise ValueError(
+            f"Template dimensions {t.shape} exceed slice image dimensions {slice_image.shape}. "
+            f"Try using a smaller template_match_padding_mm value."
+        )
+
     phantom_mask = (slice_image > -200) & (slice_image < 200)
     match_slice = np.abs(slice_image - slice_image[phantom_mask].mean())
     match_slice = gaussian(match_slice, sigma=2)
     result = match_template(match_slice, t, pad_input=True)
     result = np.abs(result)
     corr_val = result.max()
-    if corr_val < 0.7:
+    if corr_val < corr_warning_level:
         raise UserWarning(
-            "Correlation between CTP682 template and slice array was less than 0.7"
+            f"Correlation between CTP682 template and slice array was less than {corr_warning_level}"
         )
     phantom_centre = np.where(result == result.max())
     phantom_centre = phantom_centre[0][0], phantom_centre[1][0]  # row, column
