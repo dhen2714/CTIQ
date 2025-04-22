@@ -156,8 +156,28 @@ def calculate_ttf(
 ) -> TTF:
     """
     Radial ESF calculated within the ROI around the subpixel center (row, column).
-    ESF sampled up to max_sample_radius in pixels.
-    ESF then used to calculate the radial MTF
+
+    Computes the radial Edge Spread Function (ESF) within the ROI around a subpixel center,
+    then converts it to a TTF measurement.
+
+    Parameters
+    ----------
+    roi : numpy.ndarray
+        Region of interest image data.
+    subpixel_center : tuple[float]
+        Coordinates of the center point (row, column) with subpixel precision.
+    max_sample_radius : float
+        Maximum distance in pixels from the center to sample the ESF. Set to ~2x insert
+        radius in pixels.
+    pixel_size_mm : float, optional
+        Physical size of a pixel in millimeters, default=1.
+    supersample_factor : int, optional
+        Factor by which to supersample the data for subpixel resolution, default=10.
+
+    Returns
+    -------
+    TTF : object
+        Task transfer function container object containing the calculated TTF data.
     """
     esf = calculate_radial_esf(
         roi, subpixel_center, max_sample_radius, pixel_size_mm, supersample_factor
