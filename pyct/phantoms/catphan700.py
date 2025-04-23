@@ -4,6 +4,7 @@ import numpy as np
 from skimage.feature import match_template
 from skimage.filters import gaussian
 from dataclasses import dataclass
+import warnings
 
 PHANTOM_DIAMETER_MM = 200
 CTP682_INSERT_ANGULAR_POSITIONS_DEG = [15, 60, 90, 120, 165, 195, 240, 270, 300, 345]
@@ -237,9 +238,8 @@ def get_CTP682_centre_pixel(
     result = np.abs(result)
     corr_val = result.max()
     if corr_val < corr_warning_level:
-        raise UserWarning(
-            f"Correlation between CTP682 template and slice array was less than {corr_warning_level}"
-        )
+        warning_message = f"Correlation between CTP682 template and slice array was less than {corr_warning_level}"
+        warnings.warn(warning_message, UserWarning)
     phantom_centre = np.where(result == result.max())
     phantom_centre = phantom_centre[0][0], phantom_centre[1][0]  # row, column
     return phantom_centre
