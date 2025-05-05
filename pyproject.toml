@@ -3,7 +3,7 @@
 authors = [{name = "David Henry", email = "david.henry3@health.nsw.gov.au"}]
 description = "Tools for CT image quality quantification and analysis."
 name = "pyct"
-version = "1.0.8"
+version = "1.0.9"
 
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["pyct", "pyct.phantoms"]
+include = ["pyct", "pyct.catphan700", "pyct.celt_phantom"]
 where = ["."]
 
 [project-urls]
