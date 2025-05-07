@@ -270,6 +270,11 @@ class AxialSeries:
         slice_pixel_dim = np.array(slice_pixel_dim).astype(float)
         return slice_pixel_dim
 
+    @property
+    def orientation(self):
+        # (0018, 5100) Patient Position - HFP, HFS, FFP, FFS etc.
+        return self[0].get((0x0018, 0x5100)).value
+
     def __len__(self):
         return len(self._slices)
 
