@@ -15,10 +15,29 @@ def find_high_variance_centre_location(
     variance_profile: np.array,
     upsample_factor: int = 10,
     min_segment_length_mm: float = 35,
-) -> tuple[int, int]:
+) -> float:
     """
     Locate the CTP721/CTP723 segment which has consistently high variance.
-    Returns start and end indices.
+
+    This function identifies the center location of the CTP721/CTP723 segment within a series of CT slices.
+    It works by analyzing the variance profile across the slices to find a region of consistently high
+    variance, which is characteristic of this segment.
+
+    Args:
+        slice_locations (np.array): An array of z-coordinates (slice locations) in mm for each slice.
+        variance_profile (np.array): An array of variance values, one for each slice,
+            representing the variance of pixel values within that slice.
+        upsample_factor (int, optional):  A factor by which to upsample the slice locations and
+            variance profile.  Defaults to 10, which increases precision.
+        min_segment_length_mm (float, optional): The minimum length (in mm) of a high-variance segment
+            to be considered valid. Defaults to 35. Note length of segements is 40 mm.
+
+    Returns:
+        float: The center location (in mm) of the identified high-variance segment.
+
+    Raises:
+        RuntimeError: If no high-variance segment is found that meets the minimum length requirement.
+
     """
     slice_locations_upsampled = np.linspace(
         slice_locations.min(),
@@ -77,8 +96,8 @@ def _get_catphan700_module_indices(
     """
     The holder for the Catphan, if in the axial scan volume, can have a higher
     variance than the CTP721/CTP723 module. This would negatively affect the
-    accuracy of find_high_variance_segment(). This function effectively trims one
-    end of the axial scan in an attempt to remove the holder from the axial series.
+    accuracy of find_high_variance_center_location(). This function effectively trims
+    one end of the axial scan in an attempt to remove the holder from the axial series.
     Assumes that the axial scan length has been chosen so that the end of the
     Catphan is the end of the scan.
     """
@@ -90,11 +109,11 @@ def _get_catphan700_module_indices(
     if scan_length < catphan_modules_length_mm:
         return (0, len(slice_locations))
 
-    if orientation.lower().startswith("f"):
+    if orientation.lower().startswith("f"):  # Feet first, e.g, FFS, FFP
         loc_end = slice_locations.min() + catphan_modules_length_mm
         index_end = np.where(slice_locations < loc_end)[0][-1]
         index_start = 0
-    else:
+    else:  # default to Head first orientation
         loc_start = slice_locations.max() - catphan_modules_length_mm
         index_start = np.where(slice_locations > loc_start)[0][0]
         index_end = len(slice_locations)
@@ -111,10 +130,31 @@ def locate_all_segments(
     Identify all phantom segments based on the variance profile.
     Each segment is approximately 40mm thick.
 
+    This function identifies the locations of all relevant segments within a Catphan 700 CT
+    image. It calculates the variance profile of the CT data and uses this information,
+    along with the slice locations, to determine the start and end indices for each segment.
+    The function handles both Feet First Supine (FFS) and Head First Supine (HFS) orientations.
+
     Args:
-        variance: Array of variance values for each slice
-        slice_locations: Array of z-coordinates for each slice in mm
-        slice_thickness_mm: Slice thickness in mm
+        ct_array (np.ndarray): A 3D numpy array representing the CT image data.
+            The shape is expected to be (num_slices, height, width).
+        slice_locations (np.array): A 1D numpy array of z-coordinates (slice locations) in mm,
+            corresponding to the first dimension of the ct_array.
+        orientation (str, optional): The patient orientation during the scan.
+            Defaults to "HFS" (Head First Supine).  Use "FFS" for Feet First Supine.
+        segment_buffer_mm (float, optional): A buffer in mm to apply when defining segment boundaries.
+            Defaults to 2.  This helps to avoid partial volume effects in segment transition slices.
+
+    Returns:
+        list[Catphan700Segment]: A list of Catphan700Segment objects, where each object
+            contains information about a detected segment, including its name, indices,
+            mean variance, and center location.  The list is sorted by the center
+            location of each segment.
+
+    Raises:
+        RuntimeError: If a segment is not found within the scan range, indicating a
+            potential issue with the orientation or scan parameters.
+
     """
     variance_profile = np.var(ct_array, axis=(1, 2))
 
@@ -133,7 +173,7 @@ def locate_all_segments(
     # Working backwards from high variance segment to locate anterior segments
     current_centre = ctp721_723_centre_mm
     for segment_name in ["CTP721/CTP723", "CTP515", "CTP714", "CTP682"]:
-        # Segments are 40mm, so specify start and end as 20mm from centre, with buffer to avoid partial volume
+        # Segments are 40mm, so specify start and end as 20mm from centre, with buffer
         current_end = current_centre + (20 - segment_buffer_mm)
         current_start = current_centre - (20 - segment_buffer_mm)
         segment_indices = np.where(
