@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from dataclasses import dataclass
 
 
@@ -8,6 +10,80 @@ class Catphan700Segment:
     indices: np.array
     mean_variance: float
     center_location_mm: float  # Center position in mm
+
+
+def visualise_segments(
+    ct_array: np.ndarray,
+    slice_locations: np.array,
+    segments: list[Catphan700Segment],
+    pixel_dimensions_mm: tuple[float, float],
+    view: str = "coronal",
+) -> None:
+    """
+    Visualises the identified Catphan 700 segments on a central slice (sagittal or coronal) of the CT volume.
+
+    Args:
+        ct_array (np.ndarray): A 3D numpy array representing the axial CT slices (num_slices, height, width).
+        slice_locations (np.array): A 1D numpy array of z-coordinates (slice locations) in mm.
+        segments (List[Catphan700Segment]): A list of Catphan700Segment objects, as returned by
+            the locate_all_segments function.
+        pixel_dimensions_mm (Tuple[float, float]): The pixel dimensions in mm (width, height).
+        view (str, optional): The view to display.  Must be either "coronal" or "sagittal".
+            Defaults to "coronal".
+    """
+    slice_index = ct_array.shape[1] // 2
+    if view == "sagittal":
+        central_slice = ct_array[:, :, slice_index]
+    elif view == "coronal":
+        central_slice = ct_array[:, slice_index, :]
+    else:
+        raise ValueError("View must be either 'coronal' or 'sagittal'.")
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        central_slice.T,
+        cmap="gray",
+        origin="lower",
+        aspect=pixel_dimensions_mm[0] / (slice_locations[1] - slice_locations[0]),
+    )
+
+    segment_colors = {
+        "CTP712": "red",
+        "CTP721/CTP723": "green",
+        "CTP515": "blue",
+        "CTP714": "yellow",
+        "CTP682": "magenta",
+    }
+
+    for segment in segments:
+        segment_slice_indices = segment.indices[0]
+
+        segment_min_z = slice_locations[segment_slice_indices.min()]
+        segment_max_z = slice_locations[segment_slice_indices.max()]
+        z_start_index = np.where(slice_locations == segment_min_z)[0][0]
+        z_end_index = np.where(slice_locations == segment_max_z)[0][0]
+        z_length = z_end_index - z_start_index
+
+        y_pos = slice_index
+        x_start = z_start_index
+        width = z_length
+        rect = Rectangle(
+            (x_start, y_pos - 5),
+            width,
+            10,
+            color=segment_colors[segment.name],
+            alpha=0.3,
+            label=segment.name,
+            linewidth=1,
+        )
+        plt.gca().add_patch(rect)
+
+    plt.xlabel("z-index")
+    ylabel = "x" if view == "coronal" else "y"
+    plt.ylabel(f"{ylabel}-index")
+    plt.title(f"Catphan 700 module locations ({view} view)")
+    plt.legend(loc="lower right")
+    plt.show()
 
 
 def find_high_variance_centre_location(
