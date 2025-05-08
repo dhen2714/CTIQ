@@ -9,7 +9,11 @@ class Catphan700Segment:
     name: str
     indices: np.array
     mean_variance: float
-    center_location_mm: float  # Center position in mm
+    centre_location_mm: float  # Centre position in mm
+
+    @property
+    def centre_index(self) -> int:
+        return int(np.median(self.indices))
 
 
 def visualise_segments(
@@ -267,7 +271,7 @@ def locate_all_segments(
                 name=segment_name,
                 indices=segment_indices,
                 mean_variance=mean_var,
-                center_location_mm=current_centre,
+                centre_location_mm=current_centre,
             )
         )
 
@@ -297,10 +301,10 @@ def locate_all_segments(
             name="CTP712",
             indices=segment_indices,
             mean_variance=mean_var,
-            center_location_mm=current_centre,
+            centre_location_mm=current_centre,
         )
     )
 
     # Sort segments by position
-    segments.sort(key=lambda x: x.center_location_mm)
+    segments.sort(key=lambda x: x.centre_location_mm)
     return segments
