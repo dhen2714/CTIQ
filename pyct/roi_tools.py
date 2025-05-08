@@ -1,15 +1,7 @@
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 from dataclasses import dataclass
-
-
-@dataclass
-class ContrastInsertROI:
-    name: str
-    roi: np.ndarray
-    pixel_size_mm: tuple[float]
-    rod_centre: tuple[float]
-    rod_radius_mm: float
 
 
 @dataclass
@@ -26,17 +18,45 @@ class ROIBounds:
         return (self.row_end - self.row_start, self.col_end - self.col_start)
 
 
-def get_roi(image: np.ndarray, roi_bounds: ROIBounds) -> np.ndarray:
+@dataclass
+class CircularROIBounds:
+    """Defines a circular ROI within an array."""
+
+    centre_row: int
+    centre_col: int
+    radius: int
+
+    @property
+    def bounding_box(self):
+        """Returns the bounding box (ROIBounds) of the circular ROI."""
+        row_start = self.centre_row - self.radius
+        row_end = self.centre_row + self.radius + 1
+        col_start = self.centre_col - self.radius
+        col_end = self.centre_col + self.radius + 1
+        return ROIBounds(row_start, row_end, col_start, col_end)
+
+
+def get_roi(image: np.ndarray, roi_bounds: ROIBounds | CircularROIBounds) -> np.ndarray:
     """Return ROI given image and ROI bounds"""
-    return image[
-        roi_bounds.row_start : roi_bounds.row_end,
-        roi_bounds.col_start : roi_bounds.col_end,
-    ]
+    if isinstance(roi_bounds, ROIBounds):
+        return image[
+            roi_bounds.row_start : roi_bounds.row_end,
+            roi_bounds.col_start : roi_bounds.col_end,
+        ]
+    elif isinstance(roi_bounds, CircularROIBounds):
+        rows, cols = np.indices(image.shape[:2])
+        mask = (rows - roi_bounds.centre_row) ** 2 + (
+            cols - roi_bounds.centre_col
+        ) ** 2 <= roi_bounds.radius**2
+        # Note the returned value will not be rectangular.
+        return image[mask]
+    else:
+        raise TypeError("roi_bounds must be ROIBounds or CircularROIBounds object.")
 
 
 def draw_rois(
     ax: plt.Axes,
-    rois: ROIBounds | list[ROIBounds],
+    rois: ROIBounds | CircularROIBounds | list[ROIBounds | CircularROIBounds],
     colors: str | list[str] = "red",
     linewidth: float = 2,
     alpha: float = 1.0,
@@ -58,7 +78,7 @@ def draw_rois(
         Transparency of the boundary lines (0.0 to 1.0)
     """
     # Convert single ROI to list for uniform processing
-    if isinstance(rois, ROIBounds):
+    if not isinstance(rois, list):
         rois = [rois]
 
     # Handle single color/label case
@@ -69,28 +89,44 @@ def draw_rois(
 
     # Draw each ROI
     for roi, color in zip(rois, colors):
-        # Create rectangle vertices
-        vertices = np.array(
-            [
-                [roi.col_start, roi.row_start],  # Top left
-                [roi.col_end, roi.row_start],  # Top right
-                [roi.col_end, roi.row_end],  # Bottom right
-                [roi.col_start, roi.row_end],  # Bottom left
+        if isinstance(roi, ROIBounds):
+            # Create rectangle vertices
+            vertices = np.array(
                 [
-                    roi.col_start,
-                    roi.row_start,
-                ],  # Back to top left to close the rectangle
-            ]
-        )
+                    [roi.col_start, roi.row_start],  # Top left
+                    [roi.col_end, roi.row_start],  # Top right
+                    [roi.col_end, roi.row_end],  # Bottom right
+                    [roi.col_start, roi.row_end],  # Bottom left
+                    [
+                        roi.col_start,
+                        roi.row_start,
+                    ],  # Back to top left to close the rectangle
+                ]
+            )
 
-        # Plot the boundary
-        ax.plot(
-            vertices[:, 0],
-            vertices[:, 1],
-            color=color,
-            linewidth=linewidth,
-            alpha=alpha,
-        )
+            # Plot the boundary
+            ax.plot(
+                vertices[:, 0],
+                vertices[:, 1],
+                color=color,
+                linewidth=linewidth,
+                alpha=alpha,
+            )
+        elif isinstance(roi, CircularROIBounds):
+            circle = patches.Circle(
+                (
+                    roi.centre_col,
+                    roi.centre_row,
+                ),  # Note the order (x, y) for matplotlib
+                roi.radius,
+                edgecolor=color,
+                facecolor="none",
+                linewidth=linewidth,
+                alpha=alpha,
+            )
+            ax.add_patch(circle)
+        else:
+            raise TypeError(f"Unsupported ROI type: {type(roi)}")
 
 
 def get_roi_bounds_from_centre_pixel(

@@ -1,14 +1,61 @@
-from ..roi_tools import ContrastInsertROI, ROIBounds, get_roi
+from ..roi_tools import ROIBounds, CircularROIBounds, get_roi
 from ..processing import pixelate, circle_centre_subpixel
 import numpy as np
 from skimage.feature import match_template
 from skimage.filters import gaussian
+from dataclasses import dataclass
 import warnings
 
 PHANTOM_DIAMETER_MM = 200
 CTP682_INSERT_ANGULAR_POSITIONS_DEG = [15, 60, 90, 120, 165, 195, 240, 270, 300, 345]
+INSERT_NAMES_HF = [  # head first orientation corresponding to angular positions
+    "Bone50",
+    "Acrylic",
+    "Air",
+    "PMP",
+    "Lung7112",
+    "Delrin",
+    "Polystyrene",
+    "Teflon",
+    "Bone20",
+    "LDPE",
+]
+INSERT_NAMES_FF = [  # feet first orientation corresponding to angular positions
+    "Lung7112",
+    "PMP",
+    "Air",
+    "Acrylic",
+    "Bone50",
+    "LDPE",
+    "Bone20",
+    "Teflon",
+    "Polystyrene",
+    "Delrin",
+]
 CTP682_INSERT_DIAMETER_MM = 12.2
 CTP682_INSERT_RADIAL_POS_MM = 58.4
+
+
+@dataclass
+class ContrastInsertROI:
+    name: str
+    roi: np.ndarray
+    pixel_size_mm: tuple[float]
+    rod_centre: tuple[float]
+    rod_radius_mm: float
+    bounds: ROIBounds  # ROIBounds defined in the original image
+
+    def get_central_roi_bounds(self, roi_radius_mm: float) -> CircularROIBounds:
+        roi_radius_px = roi_radius_mm / self.pixel_size_mm[0]
+        return CircularROIBounds(self.rod_centre[0], self.rod_centre[1], roi_radius_px)
+
+    def mean(self, measure_radius_mm: float = 5) -> float:
+        measure_roi_bounds = self.get_central_roi_bounds(measure_radius_mm)
+        return get_roi(self.roi, measure_roi_bounds).mean()
+
+    def std(self, measure_radius_mm: float = 5) -> float:
+        measure_roi_bounds = self.get_central_roi_bounds(measure_radius_mm)
+        return get_roi(self.roi, measure_roi_bounds).std()
 
 
 def create_CTP682_template(
@@ -130,13 +177,31 @@ def get_CTP682_centre_pixel(
     return phantom_centre
 
 
+def _insertlist2dict(
+    contrast_insert_list: list[ContrastInsertROI], orientation: str
+) -> dict[str, ContrastInsertROI]:
+    if orientation.lower().startswith("h"):
+        insert_names = INSERT_NAMES_HF
+    elif orientation.lower().startswith("f"):
+        insert_names = INSERT_NAMES_FF
+    else:
+        raise ValueError("Orientation must be 'HF' or 'FF'.")
+    contrast_insert_dict = {
+        insert_name: contrast_insert
+        for insert_name, contrast_insert in zip(insert_names, contrast_insert_list)
+    }
+    return contrast_insert_dict
+
+
 def get_CTP682_contrast_rois(
     slice_image: np.ndarray,
-    phantom_centre_px: tuple[float, float],
     pixel_size_mm: tuple[float, float] = (1.0, 1.0),
+    orientation: str = "HFS",
     roi_margin_factor: float = 2.5,
     supersample_factor: int = 10,
-) -> list[ContrastInsertROI]:
+    template_match_padding_mm: float = -30,
+    corr_warning_level: float = 0.7,
+) -> dict[str, ContrastInsertROI]:
     """
     Identifies and returns ROIs around contrast inserts in a CTP682 module.
     Initially finds ROIs depending on angular position from phantom centre.
@@ -146,20 +211,31 @@ def get_CTP682_contrast_rois(
     ----------
     slice_image : np.ndarray
         2D array of the CT slice containing the phantom
-    phantom_centre_px : Tuple[float, float]
-        Centre position of the phantom in pixels (row, column)
     pixel_size_mm : Tuple[float, float]
         Pixel dimensions in mm (row_size, col_size)
+    orientation : str
+        The patient orientation during the scan. Defaults to "HFS" (Head First Supine).
+        Use "FFS" for Feet First Supine.
     roi_margin_factor : float
         Factor to multiply insert diameter by for ROI size
     supersample_factor : int
         Factor for supersampling in subpixel position refinement
+    template_padding_mm : float
+        For finding phantom centre, additional padding around the template in mm. Negative
+        values indicate that the templateneeds to be cropped. To perform template matching,
+        the size of the template must be smaller than the dimensions of the slice_image.
+    corr_warning_level: float
+        For finding phantom centre, raises a warning if the template matching correlation is
+        below this value.
 
     Returns
     -------
     List[ContrastInsertROI]
         List of ContrastInsertROI objects for each insert
     """
+    phantom_centre_px = get_CTP682_centre_pixel(
+        slice_image, pixel_size_mm, template_match_padding_mm, corr_warning_level
+    )
     # Convert distances from mm to pixels
     insert_distance_px = (
         CTP682_INSERT_RADIAL_POS_MM / pixel_size_mm[0],
@@ -174,7 +250,7 @@ def get_CTP682_contrast_rois(
         CTP682_INSERT_DIAMETER_MM * roi_margin_factor / pixel_size_mm[0]
     )
 
-    insert_locations = []
+    contrast_insert_list = []
 
     # Find each insert's position and create ROI
     for angle_deg in CTP682_INSERT_ANGULAR_POSITIONS_DEG:
@@ -208,13 +284,14 @@ def get_CTP682_contrast_rois(
 
         # Create ContrastInsertROI object
         insert_roi = ContrastInsertROI(
-            name=f"Insert_{angle_deg}deg",
+            name=f"{angle_deg}_deg",
             roi=initial_roi,
             pixel_size_mm=pixel_size_mm,
             rod_centre=(local_row, local_col),
             rod_radius_mm=CTP682_INSERT_DIAMETER_MM / 2,
+            bounds=initial_bounds,
         )
 
-        insert_locations.append(insert_roi)
+        contrast_insert_list.append(insert_roi)
 
-    return insert_locations
+    return _insertlist2dict(contrast_insert_list, orientation)
