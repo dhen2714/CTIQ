@@ -7,7 +7,7 @@ from dataclasses import dataclass
 @dataclass
 class Catphan700Segment:
     name: str
-    indices: np.array
+    indices: np.ndarray
     mean_variance: float
     centre_location_mm: float  # Centre position in mm
 
@@ -18,7 +18,7 @@ class Catphan700Segment:
 
 def visualise_segments(
     ct_array: np.ndarray,
-    slice_locations: np.array,
+    slice_locations: np.ndarray,
     segments: list[Catphan700Segment],
     pixel_dimensions_mm: tuple[float, float],
     view: str = "coronal",
@@ -28,7 +28,7 @@ def visualise_segments(
 
     Args:
         ct_array (np.ndarray): A 3D numpy array representing the axial CT slices (num_slices, height, width).
-        slice_locations (np.array): A 1D numpy array of z-coordinates (slice locations) in mm.
+        slice_locations (np.ndarray): A 1D numpy array of z-coordinates (slice locations) in mm.
         segments (List[Catphan700Segment]): A list of Catphan700Segment objects, as returned by
             the locate_all_segments function.
         pixel_dimensions_mm (Tuple[float, float]): The pixel dimensions in mm (width, height).
@@ -91,8 +91,8 @@ def visualise_segments(
 
 
 def find_high_variance_centre_location(
-    slice_locations: np.array,
-    variance_profile: np.array,
+    slice_locations: np.ndarray,
+    variance_profile: np.ndarray,
     upsample_factor: int = 10,
     min_segment_length_mm: float = 35,
 ) -> float:
@@ -104,8 +104,8 @@ def find_high_variance_centre_location(
     variance, which is characteristic of this segment.
 
     Args:
-        slice_locations (np.array): An array of z-coordinates (slice locations) in mm for each slice.
-        variance_profile (np.array): An array of variance values, one for each slice,
+        slice_locations (np.ndarray): An array of z-coordinates (slice locations) in mm for each slice.
+        variance_profile (np.ndarray): An array of variance values, one for each slice,
             representing the variance of pixel values within that slice.
         upsample_factor (int, optional):  A factor by which to upsample the slice locations and
             variance profile.  Defaults to 10, which increases precision.
@@ -171,8 +171,8 @@ def find_high_variance_centre_location(
 
 
 def _get_catphan700_module_indices(
-    slice_locations: np.array, orientation: str = "HFS"
-) -> tuple[int]:
+    slice_locations: np.ndarray, orientation: str = "HFS"
+) -> tuple[int, int]:
     """
     The holder for the Catphan, if in the axial scan volume, can have a higher
     variance than the CTP721/CTP723 module. This would negatively affect the
@@ -202,7 +202,7 @@ def _get_catphan700_module_indices(
 
 def locate_all_segments(
     ct_array: np.ndarray,
-    slice_locations: np.array,
+    slice_locations: np.ndarray,
     orientation: str = "HFS",
     segment_buffer_mm: float = 2,
 ) -> list[Catphan700Segment]:
@@ -218,7 +218,7 @@ def locate_all_segments(
     Args:
         ct_array (np.ndarray): A 3D numpy array representing the CT image data.
             The shape is expected to be (num_slices, height, width).
-        slice_locations (np.array): A 1D numpy array of z-coordinates (slice locations) in mm,
+        slice_locations (np.ndarray): A 1D numpy array of z-coordinates (slice locations) in mm,
             corresponding to the first dimension of the ct_array.
         orientation (str, optional): The patient orientation during the scan.
             Defaults to "HFS" (Head First Supine).  Use "FFS" for Feet First Supine.
@@ -269,7 +269,7 @@ def locate_all_segments(
         segments.append(
             Catphan700Segment(
                 name=segment_name,
-                indices=segment_indices,
+                indices=segment_indices[0],
                 mean_variance=mean_var,
                 centre_location_mm=current_centre,
             )
@@ -299,7 +299,7 @@ def locate_all_segments(
     segments.append(
         Catphan700Segment(
             name="CTP712",
-            indices=segment_indices,
+            indices=segment_indices[0],
             mean_variance=mean_var,
             centre_location_mm=current_centre,
         )
