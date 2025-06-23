@@ -114,8 +114,8 @@ def rebin_by_pitch(
 
 
 def rebin(
-    xarr: np.array, yarr: np.array, num_bins: int = 20
-) -> tuple[np.array, np.array]:
+    xarr: np.ndarray, yarr: np.ndarray, num_bins: int = 20
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Rebins the y values corresponding to the x values into a new set of x values
     by averaging.
@@ -166,7 +166,7 @@ def rebin(
     return xnew, np.array(ynew)
 
 
-def smooth(array1d: np.array, window_size: int = 5) -> np.array:
+def smooth(array1d: np.ndarray, window_size: int = 5) -> np.ndarray:
     """
     Implementation of MATLAB smooth function. Applies rolling average window.
 
@@ -212,7 +212,7 @@ def circle_centre_subpixel(
     circle_radius_px: float,
     template_padding_px: int = 10,
     supersample_factor: int = 10,
-) -> tuple[float]:
+) -> tuple[float, float]:
     """Find subpixel centre location of a circle within the ROI."""
     template = circle_template(
         supersample_factor * circle_radius_px, template_padding_px

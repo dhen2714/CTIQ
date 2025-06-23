@@ -24,7 +24,9 @@ class PhantomDetectionError(ValueError):
     pass
 
 
-def _get_insert_inds(insert_centre_pos: tuple[float], FX: np.ndarray, FY: np.ndarray):
+def _get_insert_inds(
+    insert_centre_pos: tuple[float, float], FX: np.ndarray, FY: np.ndarray
+):
     FY, FX = FY - insert_centre_pos[0], FX - insert_centre_pos[1]
     return np.where(
         np.sqrt(FX**2 + FY**2) < (INSERT_DIAMETER_MM / 2 / TEMPLATE_PIX_SIZE)
@@ -62,7 +64,7 @@ def get_insert_template():
 
 def get_phantom_centre(
     axial_slice: np.ndarray, template: np.ndarray, threshold: float = 0.5
-) -> tuple[int]:
+) -> tuple[int, int]:
     """
     Matches given template to an axial slice, returns (row, column) index of best
     match between slice and template. template must have smaller dimensions than
@@ -93,8 +95,8 @@ class Celt:
     def __init__(
         self,
         pixel_array3d: np.ndarray,
-        slice_locations: np.array,
-        pixel_dim_mm: tuple[float],
+        slice_locations: np.ndarray,
+        pixel_dim_mm: tuple[float, float],
         template_match_threshold: float = 0.5,
     ) -> None:
         self.array = pixel_array3d
@@ -119,11 +121,11 @@ class Celt:
 
     def measure_background(
         self,
-        slice_indices: None | int | list[int] = None,
+        slice_indices: None | int | list[int] | np.ndarray = None,
         roi_bounds: None | list[ROIBounds] = None,
     ) -> pd.DataFrame:
         if slice_indices is None:
-            slice_indices = range(len(self.array))
+            slice_indices = np.arange(len(self.array))
         elif isinstance(slice_indices, (int, np.integer)):
             slice_indices = [slice_indices]
         else:
@@ -150,7 +152,7 @@ class Celt:
                 "min": rois.min(),
             }
             measurements.append(measurement)
-        return pd.DataFrame(measurements, index=slice_indices)
+        return pd.DataFrame(measurements, index=pd.Index(slice_indices))
 
     def find_background_roi_bounds(self, slice_index: int) -> list[ROIBounds]:
         axial_slice = self.array[slice_index]
@@ -178,7 +180,7 @@ class Celt:
         roi_bounds: None | list[ROIBounds] = None,
     ) -> pd.DataFrame:
         if slice_indices is None:
-            slice_indices = range(len(self.array))
+            slice_indices = np.arange(len(self.array))
         elif isinstance(slice_indices, (int, np.integer)):
             slice_indices = [slice_indices]
         else:

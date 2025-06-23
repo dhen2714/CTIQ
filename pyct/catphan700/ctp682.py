@@ -40,8 +40,8 @@ CTP682_INSERT_RADIAL_POS_MM = 58.4
 class ContrastInsertROI:
     name: str
     roi: np.ndarray
-    pixel_size_mm: tuple[float]
-    rod_centre: tuple[float]
+    pixel_size_mm: tuple[float, float]
+    rod_centre: tuple[float, float]
     rod_radius_mm: float
     bounds: ROIBounds  # ROIBounds defined in the original image
 
@@ -61,7 +61,7 @@ class ContrastInsertROI:
 def create_CTP682_template(
     pixel_size_mm: float = 0.1,
     template_padding_mm: float = -30,
-) -> tuple[np.ndarray, tuple[float, float]]:
+) -> np.ndarray:
     """
     Creates a binary template for matching CTP682 insert in the Catphan700.
 

@@ -1,7 +1,9 @@
+from .processing import pixelate
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from dataclasses import dataclass
+from matplotlib.axes import Axes
 
 
 @dataclass
@@ -22,17 +24,17 @@ class ROIBounds:
 class CircularROIBounds:
     """Defines a circular ROI within an array."""
 
-    centre_row: int
-    centre_col: int
-    radius: int
+    centre_row: float
+    centre_col: float
+    radius: float
 
     @property
     def bounding_box(self):
         """Returns the bounding box (ROIBounds) of the circular ROI."""
-        row_start = self.centre_row - self.radius
-        row_end = self.centre_row + self.radius + 1
-        col_start = self.centre_col - self.radius
-        col_end = self.centre_col + self.radius + 1
+        row_start = pixelate(self.centre_row - self.radius)
+        row_end = pixelate(self.centre_row + self.radius + 1)
+        col_start = pixelate(self.centre_col - self.radius)
+        col_end = pixelate(self.centre_col + self.radius + 1)
         return ROIBounds(row_start, row_end, col_start, col_end)
 
 
@@ -55,7 +57,7 @@ def get_roi(image: np.ndarray, roi_bounds: ROIBounds | CircularROIBounds) -> np.
 
 
 def draw_rois(
-    ax: plt.Axes,
+    ax: Axes,
     rois: ROIBounds | CircularROIBounds | list[ROIBounds | CircularROIBounds],
     colors: str | list[str] = "red",
     linewidth: float = 2,
@@ -130,7 +132,7 @@ def draw_rois(
 
 
 def get_roi_bounds_from_centre_pixel(
-    centre_index: tuple[int], roi_dim: int
+    centre_index: tuple[int, int], roi_dim: int
 ) -> ROIBounds:
     row_start, row_end = int(centre_index[0] - roi_dim / 2), int(
         centre_index[0] + roi_dim / 2
@@ -142,7 +144,7 @@ def get_roi_bounds_from_centre_pixel(
 
 
 def get_roi_from_centre_pixel(
-    image: np.ndarray, centre_index: tuple[int], roi_dim: int
+    image: np.ndarray, centre_index: tuple[int, int], roi_dim: int
 ) -> np.ndarray:
     """
     Return square ROI from an image given centre pixel index and roi dimension.

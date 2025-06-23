@@ -56,7 +56,7 @@ class AxialSeries:
         self,
         directory: str | Path,
         load_images: bool = True,
-        custom_tags: dict[str, tuple[int, int]] = None,
+        custom_tags: dict[str, tuple[int, int]] | None = None,
         skip_dimension_mismatch: bool = True,
         validate_dimensions: bool = False,
     ) -> None:
@@ -85,7 +85,7 @@ class AxialSeries:
         self,
         directory: str | Path,
         load_images: bool,
-        custom_tags: dict[str, tuple[int, int]] = None,
+        custom_tags: dict[str, tuple[int, int]] | None = None,
     ) -> None:
         """Fast loading path that skips dimension validation."""
         for dir_item in Path(directory).iterdir():
@@ -132,7 +132,7 @@ class AxialSeries:
         directory: str | Path,
         load_images: bool,
         skip_dimension_mismatch: bool,
-        custom_tags: dict[str, tuple[int, int]] = None,
+        custom_tags: dict[str, tuple[int, int]] | None = None,
     ) -> None:
         dimension_counts = {}
         total_files = 0
@@ -265,27 +265,27 @@ class AxialSeries:
         return "\n".join(report)
 
     @property
-    def pixel_size(self):
+    def pixel_size(self) -> np.ndarray:
         slice_pixel_dim = self[0][(0x0028, 0x0030)].value
         slice_pixel_dim = np.array(slice_pixel_dim).astype(float)
         return slice_pixel_dim
 
     @property
-    def orientation(self):
+    def orientation(self) -> str:
         # (0018, 5100) Patient Position - HFP, HFS, FFP, FFS etc.
         return self[0].get((0x0018, 0x5100)).value
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._slices)
 
-    def __iter__(self):
+    def __iter__(self) -> "AxialSeries":
         self._current_idx = 0
         return self
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int) -> pydicom.Dataset:
         return self._slices[i]
 
-    def __next__(self):
+    def __next__(self) -> pydicom.Dataset:
         if self._current_idx < len(self):
             current_index = self._current_idx
             self._current_idx += 1
