@@ -11,29 +11,31 @@ import warnings
 class ESF:
     """Container class for calculated ESF."""
 
-    esf: np.array
-    r: np.array
+    esf: np.ndarray
+    r: np.ndarray
 
 
 @dataclass
 class TTF:
     """Container class for calculated TTF."""
 
-    mtf: np.array
-    esf: np.array
-    lsf: np.array
-    f: np.array
-    r: np.array
+    mtf: np.ndarray
+    esf: np.ndarray
+    lsf: np.ndarray
+    f: np.ndarray
+    r: np.ndarray
 
     @property
-    def ttf(self) -> np.array:
+    def ttf(self) -> np.ndarray:
         return self.mtf
 
 
 @njit(parallel=True, fastmath=True)
 def rebin_calc_esf(
-    sample_positions: np.array, flattened_roi: np.array, upsampled_distances: np.array
-) -> np.array:
+    sample_positions: np.ndarray,
+    flattened_roi: np.ndarray,
+    upsampled_distances: np.ndarray,
+) -> np.ndarray:
     """
     Rebin ROI pixel values according to their distance from the edge.
     Returns ESF.
@@ -48,7 +50,7 @@ def rebin_calc_esf(
     return esf
 
 
-def esf2ttf(esf: np.array, sample_positions: np.array) -> TTF:
+def esf2ttf(esf: np.ndarray, sample_positions: np.ndarray) -> TTF:
     """
     Convert Edge Spread Function to Transfer Function.
 
@@ -71,11 +73,11 @@ def esf2ttf(esf: np.array, sample_positions: np.array) -> TTF:
     LSF = fft(lsf)
 
     # Safe normalization
-    dc_component = np.abs(LSF)[0]
+    dc_component = np.abs(LSF)[0]  # type: ignore
     if dc_component < 1e-10:  # Protect against division by very small numbers
         raise ValueError("DC component is too small for reliable TTF calculation")
     # Normalise MTF using DC component
-    MTF = np.abs(LSF) / dc_component
+    MTF = np.abs(LSF) / dc_component  # type: ignore
 
     frequencies = fftfreq(len(lsf), sample_period)
 
@@ -86,7 +88,7 @@ def esf2ttf(esf: np.array, sample_positions: np.array) -> TTF:
     return TTF(MTF, esf, lsf, frequencies, sample_positions)
 
 
-def esf_hann_window(esf: np.array, window_width: int = 15) -> np.array:
+def esf_hann_window(esf: np.ndarray, window_width: int = 15) -> np.ndarray:
     """Return Hann window that flattens the tails of the LSF, using ESF as input."""
     # Find the centre of the edge and edge width
     esf_max, esf_min = esf.max(), esf.min()
@@ -111,7 +113,7 @@ def esf_hann_window(esf: np.array, window_width: int = 15) -> np.array:
 
 def calculate_radial_esf(
     roi: np.ndarray,
-    subpixel_center: tuple[float],
+    subpixel_center: tuple[float, float],
     max_sample_radius: float,
     pixel_size_mm: float = 1,
     supersample_factor: int = 10,
@@ -151,7 +153,7 @@ def calculate_radial_esf(
 
 def calculate_ttf(
     roi: np.ndarray,
-    subpixel_center: tuple[float],
+    subpixel_center: tuple[float, float],
     max_sample_radius: float,
     pixel_size_mm: float = 1,
     supersample_factor: int = 10,
@@ -188,20 +190,20 @@ def calculate_ttf(
 
 
 def get_cutoff_frequency(
-    spatial_frequencies: np.array,
-    mtf_values: np.array,
+    spatial_frequencies: np.ndarray,
+    mtf_values: np.ndarray,
     cutoff_point: float,
     mtf_threshold: float = 0.01,
-) -> float:
+) -> float | None:
     """
     Finds the cutoff frequency at a specified MTF value using interpolation,
     considering only MTF values up to the point where it first drops below a threshold.
 
     Parameters
     ----------
-    spatial_frequencies : np.array
+    spatial_frequencies : np.ndarray
         1D array of spatial frequency values (assumed to be sorted).
-        mtf_values (np.array): 1D array of corresponding MTF values
+        mtf_values (np.ndarray): 1D array of corresponding MTF values
         (assumed to be sorted according to spatial frequencies).
     cutoff_point : float
         The MTF value at which to find the cutoff frequency (e.g., 0.5 for 50%).
@@ -243,7 +245,7 @@ def get_cutoff_frequency(
         valid_mtf_values,
         valid_spatial_frequencies,
         bounds_error=False,
-        fill_value="extrapolate",
+        fill_value="extrapolate",  # type: ignore
     )
 
     # Find the cutoff frequency using the interpolation function
