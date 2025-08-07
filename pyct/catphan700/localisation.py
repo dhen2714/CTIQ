@@ -22,6 +22,7 @@ def visualise_segments(
     segments: list[Catphan700Segment],
     pixel_dimensions_mm: tuple[float, float],
     view: str = "coronal",
+    patch_size_px: int = 512,
 ) -> None:
     """
     Visualises the identified Catphan 700 segments on a central slice (sagittal or coronal) of the CT volume.
@@ -34,6 +35,8 @@ def visualise_segments(
         pixel_dimensions_mm (Tuple[float, float]): The pixel dimensions in mm (width, height).
         view (str, optional): The view to display.  Must be either "coronal" or "sagittal".
             Defaults to "coronal".
+        patch_size_px (int, optional): The height of the coloured rectangle that covers each segment.
+            Defaults to 512.
     """
     slice_index = ct_array.shape[1] // 2
     if view == "sagittal":
@@ -60,7 +63,7 @@ def visualise_segments(
     }
 
     for segment in segments:
-        segment_slice_indices = segment.indices[0]
+        segment_slice_indices = segment.indices
 
         segment_min_z = slice_locations[segment_slice_indices.min()]
         segment_max_z = slice_locations[segment_slice_indices.max()]
@@ -72,9 +75,9 @@ def visualise_segments(
         x_start = z_start_index
         width = z_length
         rect = Rectangle(
-            (x_start, y_pos - 5),
+            (x_start, y_pos - patch_size_px / 2),
             width,
-            10,
+            patch_size_px,
             color=segment_colors[segment.name],
             alpha=0.3,
             label=segment.name,
