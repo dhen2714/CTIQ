@@ -56,6 +56,36 @@ def get_roi(image: np.ndarray, roi_bounds: ROIBounds | CircularROIBounds) -> np.
         raise TypeError("roi_bounds must be ROIBounds or CircularROIBounds object.")
 
 
+def get_background_roi(
+    image: np.ndarray, circular_roi_bounds: CircularROIBounds
+) -> np.ndarray:
+    """
+    Extracts the background pixels, defined as the area outside a circular ROI.
+
+    Creates a boolean mask for a circular region specified by
+    `circular_roi_bounds`. Then inverts this mask to select all pixels
+    that fall outside the circle, effectively capturing the background.
+
+    Note: The returned array is flattened (1D), as it consists of all pixels
+    from the non-contiguous background region.
+
+    Args:
+        image (np.ndarray): The input image as a NumPy array.
+        circular_roi_bounds (CircularROIBounds): The circular
+            Region of Interest (ROI) to exclude from the background.
+
+    Returns:
+        np.ndarray: A 1D NumPy array containing the pixel values from the
+            background region.
+    """
+    rows, cols = np.indices(image.shape[:2])
+    mask = (rows - circular_roi_bounds.centre_row) ** 2 + (
+        cols - circular_roi_bounds.centre_col
+    ) ** 2 <= circular_roi_bounds.radius**2
+
+    return image[~mask]
+
+
 def draw_rois(
     ax: Axes,
     rois: ROIBounds | CircularROIBounds | list[ROIBounds | CircularROIBounds],

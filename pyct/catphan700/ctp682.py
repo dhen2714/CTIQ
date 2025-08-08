@@ -1,4 +1,4 @@
-from ..roi_tools import ROIBounds, CircularROIBounds, get_roi
+from ..roi_tools import ROIBounds, CircularROIBounds, get_roi, get_background_roi
 from ..processing import pixelate, circle_centre_subpixel
 import numpy as np
 from skimage.feature import match_template
@@ -43,7 +43,7 @@ class ContrastInsertROI:
     pixel_size_mm: tuple[float, float]
     rod_centre: tuple[float, float]
     rod_radius_mm: float
-    bounds: ROIBounds  # ROIBounds defined in the original image
+    bounds: ROIBounds  # ROIBounds as defined in the original image
 
     def get_central_roi_bounds(self, roi_radius_mm: float) -> CircularROIBounds:
         roi_radius_px = roi_radius_mm / self.pixel_size_mm[0]
@@ -56,6 +56,23 @@ class ContrastInsertROI:
     def std(self, measure_radius_mm: float = 5) -> float:
         measure_roi_bounds = self.get_central_roi_bounds(measure_radius_mm)
         return get_roi(self.roi, measure_roi_bounds).std()
+
+    def background_mean(self, exclusion_radius_mm: float = 8) -> float:
+        exclusion_roi_bounds = self.get_central_roi_bounds(exclusion_radius_mm)
+        return get_background_roi(self.roi, exclusion_roi_bounds).mean()
+
+    def background_std(self, exclusion_radius_mm: float = 8) -> float:
+        exclusion_roi_bounds = self.get_central_roi_bounds(exclusion_radius_mm)
+        return get_background_roi(self.roi, exclusion_roi_bounds).std()
+
+    def cnr(
+        self, measure_radius_mm: float = 5, exclusion_radius_mm: float = 8
+    ) -> float:
+        foreground = self.mean(measure_radius_mm)
+        background = self.background_mean(exclusion_radius_mm)
+        contrast = foreground - background
+        noise = self.background_std(exclusion_radius_mm)
+        return contrast / noise
 
 
 def create_CTP682_template(
