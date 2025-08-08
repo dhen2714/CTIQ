@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import warnings
 
 PHANTOM_DIAMETER_MM = 200
-CTP682_INSERT_ANGULAR_POSITIONS_DEG = [15, 60, 90, 120, 165, 195, 240, 270, 300, 345]
+INSERT_ANGULAR_POSITIONS_DEG = [15, 60, 90, 120, 165, 195, 240, 270, 300, 345]
 INSERT_NAMES_HF = [  # head first orientation corresponding to angular positions
     "Bone50",
     "Acrylic",
@@ -32,8 +32,16 @@ INSERT_NAMES_FF = [  # feet first orientation corresponding to angular positions
     "Polystyrene",
     "Delrin",
 ]
-CTP682_INSERT_DIAMETER_MM = 12.2
-CTP682_INSERT_RADIAL_POS_MM = 58.4
+INSERT2ANGLE_HF = {
+    material: angular_pos
+    for material, angular_pos in zip(INSERT_NAMES_HF, INSERT_ANGULAR_POSITIONS_DEG)
+}
+INSERT2ANGLE_FF = {
+    material: angular_pos
+    for material, angular_pos in zip(INSERT_NAMES_FF, INSERT_ANGULAR_POSITIONS_DEG)
+}
+INSERT_DIAMETER_MM = 12.2
+INSERT_RADIAL_POS_MM = 58.4
 
 
 @dataclass
@@ -116,8 +124,8 @@ def create_CTP682_template(
     center_px = template_size_px / 2
 
     # Convert insert parameters to pixels
-    insert_distance_px = CTP682_INSERT_RADIAL_POS_MM / pixel_size_mm
-    insert_radius_px = (CTP682_INSERT_DIAMETER_MM / 2) / pixel_size_mm
+    insert_distance_px = INSERT_RADIAL_POS_MM / pixel_size_mm
+    insert_radius_px = (INSERT_DIAMETER_MM / 2) / pixel_size_mm
 
     phantom_radius_px = (PHANTOM_DIAMETER_MM / 2) / pixel_size_mm
 
@@ -127,7 +135,7 @@ def create_CTP682_template(
     x = x - center_px
 
     # Add circles at each insert position
-    for angle_deg in CTP682_INSERT_ANGULAR_POSITIONS_DEG:
+    for angle_deg in INSERT_ANGULAR_POSITIONS_DEG:
         # Convert angle to radians
         angle_rad = np.deg2rad(angle_deg)
 
@@ -194,20 +202,72 @@ def get_CTP682_centre_pixel(
     return phantom_centre
 
 
-def _insertlist2dict(
-    contrast_insert_list: list[ContrastInsertROI], orientation: str
-) -> dict[str, ContrastInsertROI]:
+def get_angular_position(material: str, orientation: str = "HFS"):
     if orientation.lower().startswith("h"):
-        insert_names = INSERT_NAMES_HF
+        mapping = INSERT2ANGLE_HF
     elif orientation.lower().startswith("f"):
-        insert_names = INSERT_NAMES_FF
+        mapping = INSERT2ANGLE_FF
     else:
         raise ValueError("Orientation must be 'HF' or 'FF'.")
-    contrast_insert_dict = {
-        insert_name: contrast_insert
-        for insert_name, contrast_insert in zip(insert_names, contrast_insert_list)
-    }
-    return contrast_insert_dict
+
+    if material not in INSERT_NAMES_HF:
+        raise ValueError(f"Specified contrast material must be in {INSERT_NAMES_HF}")
+
+    return mapping[material]
+
+
+def get_contrast_roi(
+    slice_image: np.ndarray,
+    material: str,
+    phantom_centre_px: tuple[int, int],
+    pixel_size_mm: float,
+    roi_margin_factor: float = 2.5,
+    orientation: str = "HFS",
+    supersample_factor: int = 10,
+) -> ContrastInsertROI:
+
+    angle_deg = get_angular_position(material, orientation)
+
+    insert_distance_px = (
+        INSERT_RADIAL_POS_MM / pixel_size_mm[0],
+        INSERT_RADIAL_POS_MM / pixel_size_mm[1],
+    )
+    insert_radius_px = INSERT_DIAMETER_MM / 2 / pixel_size_mm[0]  # Using row pixel size
+
+    roi_size_px = pixelate(INSERT_DIAMETER_MM * roi_margin_factor / pixel_size_mm[0])
+
+    angle_rad = np.deg2rad(angle_deg)
+    delta_row = -insert_distance_px[0] * np.sin(
+        angle_rad
+    )  # Negative for image coordinates
+    delta_col = insert_distance_px[1] * np.cos(angle_rad)
+
+    nominal_row = phantom_centre_px[0] + delta_row
+    nominal_col = phantom_centre_px[1] + delta_col
+
+    initial_bounds = ROIBounds(
+        row_start=pixelate(nominal_row - roi_size_px / 2),
+        row_end=pixelate(nominal_row + roi_size_px / 2),
+        col_start=pixelate(nominal_col - roi_size_px / 2),
+        col_end=pixelate(nominal_col + roi_size_px / 2),
+    )
+
+    # Extract ROI and refine centre position
+    initial_roi = get_roi(slice_image, initial_bounds)
+
+    # Fine-tune the centre position within the ROI
+    local_row, local_col = circle_centre_subpixel(
+        initial_roi, insert_radius_px, supersample_factor
+    )
+
+    return ContrastInsertROI(
+        name=material,
+        roi=initial_roi,
+        pixel_size_mm=pixel_size_mm,
+        rod_centre=(local_row, local_col),
+        rod_radius_mm=INSERT_DIAMETER_MM / 2,
+        bounds=initial_bounds,
+    )
 
 
 def get_CTP682_contrast_rois(
@@ -253,62 +313,22 @@ def get_CTP682_contrast_rois(
     phantom_centre_px = get_CTP682_centre_pixel(
         slice_image, pixel_size_mm, template_match_padding_mm, corr_warning_level
     )
-    # Convert distances from mm to pixels
-    insert_distance_px = (
-        CTP682_INSERT_RADIAL_POS_MM / pixel_size_mm[0],
-        CTP682_INSERT_RADIAL_POS_MM / pixel_size_mm[1],
-    )
-    insert_radius_px = (
-        CTP682_INSERT_DIAMETER_MM / 2 / pixel_size_mm[0]
-    )  # Using row pixel size
-
-    # Calculate ROI size with margin
-    roi_size_px = pixelate(
-        CTP682_INSERT_DIAMETER_MM * roi_margin_factor / pixel_size_mm[0]
-    )
-
-    contrast_insert_list = []
+    contrast_insert_dict = {}
 
     # Find each insert's position and create ROI
-    for angle_deg in CTP682_INSERT_ANGULAR_POSITIONS_DEG:
-        # Convert angle to radians
-        angle_rad = np.deg2rad(angle_deg)
-
-        # Calculate expected insert centre position
-        delta_row = -insert_distance_px[0] * np.sin(
-            angle_rad
-        )  # Negative for image coordinates
-        delta_col = insert_distance_px[1] * np.cos(angle_rad)
-
-        nominal_row = phantom_centre_px[0] + delta_row
-        nominal_col = phantom_centre_px[1] + delta_col
-
-        # Get initial ROI around expected position
-        initial_bounds = ROIBounds(
-            row_start=pixelate(nominal_row - roi_size_px / 2),
-            row_end=pixelate(nominal_row + roi_size_px / 2),
-            col_start=pixelate(nominal_col - roi_size_px / 2),
-            col_end=pixelate(nominal_col + roi_size_px / 2),
-        )
-
-        # Extract ROI and refine centre position
-        initial_roi = get_roi(slice_image, initial_bounds)
-
-        # Fine-tune the centre position within the ROI
-        local_row, local_col = circle_centre_subpixel(
-            initial_roi, insert_radius_px, supersample_factor
-        )
+    for contrast_material in INSERT_NAMES_HF:
 
         # Create ContrastInsertROI object
-        insert_roi = ContrastInsertROI(
-            name=f"{angle_deg}_deg",
-            roi=initial_roi,
-            pixel_size_mm=pixel_size_mm,
-            rod_centre=(local_row, local_col),
-            rod_radius_mm=CTP682_INSERT_DIAMETER_MM / 2,
-            bounds=initial_bounds,
+        insert_roi = get_contrast_roi(
+            slice_image,
+            contrast_material,
+            phantom_centre_px,
+            pixel_size_mm,
+            roi_margin_factor,
+            orientation,
+            supersample_factor,
         )
 
-        contrast_insert_list.append(insert_roi)
+        contrast_insert_dict[contrast_material] = insert_roi
 
-    return _insertlist2dict(contrast_insert_list, orientation)
+    return contrast_insert_dict
