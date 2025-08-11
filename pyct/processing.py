@@ -16,28 +16,76 @@ def rescale_pixels(
     return new_image
 
 
-def detrend(image: np.ndarray, detrend_method: str) -> np.ndarray:
+def detrend(image: np.ndarray, detrend_method: str, mask=None) -> np.ndarray:
     """
     Detrends the input image using specified method.
 
     Parameters:
         image (np.ndarray): Input 2D image to be detrended.
         detrend_method (str): Method for detrending. Options are 'mean' or 'poly'.
+        mask (np.ndarray, optional): Boolean or binary mask defining which pixels
+                                   to use for detrending calculation. If None,
+                                   uses all pixels. Must have same shape as image.
 
     Returns:
         np.ndarray: Detrended image.
+
+    Raises:
+        ValueError: If detrend_method is not 'mean' or 'poly', or if mask has
+                   wrong shape or dtype.
     """
+    if mask is None:
+        mask = np.ones(image.shape, dtype=bool)
+    else:
+        if mask.shape != image.shape:
+            raise ValueError(
+                f"Mask shape {mask.shape} must match image shape {image.shape}"
+            )
+
+        if mask.dtype != bool:
+            if np.issubdtype(mask.dtype, np.integer):
+                mask = mask.astype(bool)
+            else:
+                raise ValueError("Mask must be boolean or integer type")
+
+        if not np.any(mask):
+            raise ValueError("Mask must contain at least one True value")
+
     if detrend_method == "mean":
-        return image - image.mean()
+        masked_mean = image[mask].mean()
+        return image - masked_mean
     elif detrend_method == "poly":  # 2D polynomial detrend.
         ny, nx = image.shape
         y, x = np.arange(ny) - ny / 2, np.arange(nx) - nx / 2
-        Y, X = np.meshgrid(y, x, copy=False)
-        Y, X = Y.flatten(), X.flatten()
-        A = np.array([X**0, X, Y, X * Y, X**2, Y**2]).T
-        b = image.flatten()
-        coefs, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        return image - np.dot(A, coefs).reshape(ny, nx)
+        Y, X = np.meshgrid(y, x, copy=False, indexing="ij")
+        X_masked = X[mask]
+        Y_masked = Y[mask]
+        b_masked = image[mask]
+        A = np.column_stack(
+            [
+                np.ones_like(X_masked),  # constant term
+                X_masked,  # x term
+                Y_masked,  # y term
+                X_masked * Y_masked,  # xy term
+                X_masked**2,  # x^2 term
+                Y_masked**2,  # y^2 term
+            ]
+        )
+        coefs, _, _, _ = np.linalg.lstsq(A, b_masked, rcond=None)
+        Y_flat, X_flat = Y.flatten(), X.flatten()
+        A_full = np.column_stack(
+            [
+                np.ones_like(X_flat),
+                X_flat,
+                Y_flat,
+                X_flat * Y_flat,
+                X_flat**2,
+                Y_flat**2,
+            ]
+        )
+
+        trend_surface = np.dot(A_full, coefs).reshape(ny, nx)
+        return image - trend_surface
     else:
         raise ValueError("Detrend method must either be 'mean' or 'poly'.")
 
