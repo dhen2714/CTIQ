@@ -1,6 +1,7 @@
 from scipy.fft import fft, fftfreq
 from scipy.interpolate import interp1d
 from scipy.signal.windows import hann
+from sklearn.isotonic import IsotonicRegression
 from numba import njit, prange
 import numpy as np
 from dataclasses import dataclass
@@ -50,7 +51,7 @@ def rebin_calc_esf(
     return esf
 
 
-def esf2ttf(esf: np.ndarray, sample_positions: np.ndarray) -> TTF:
+def esf2ttf(esf: ESF, esf_conditioning: bool = False) -> TTF:
     """
     Convert Edge Spread Function to Transfer Function.
 
@@ -61,12 +62,15 @@ def esf2ttf(esf: np.ndarray, sample_positions: np.ndarray) -> TTF:
     Returns:
         TTF object containing the transfer function and intermediate results
     """
-    sample_period = sample_positions[1] - sample_positions[0]
+    if esf_conditioning:
+        esf = condition_esf(esf)
+
+    sample_period = esf.r[1] - esf.r[0]
     # Differentiate ESF to get LSF
-    lsf = np.convolve(esf, [-1, 1], mode="valid")
+    lsf = np.convolve(esf.esf, [-1, 1], mode="valid")
     lsf = np.append([lsf[0]], lsf)  # make lsf same length as esf
     # Apply Hann windowing to flatten out tails of LSF
-    hann_window = esf_hann_window(esf)
+    hann_window = esf_hann_window(esf.esf)
     lsf = lsf * hann_window
 
     # Compute FFT
@@ -85,7 +89,7 @@ def esf2ttf(esf: np.ndarray, sample_positions: np.ndarray) -> TTF:
     fn_index = int(len(MTF) / 2)
     frequencies, MTF = frequencies[:fn_index], MTF[:fn_index]
 
-    return TTF(MTF, esf, lsf, frequencies, sample_positions)
+    return TTF(MTF, esf.esf, lsf, frequencies, esf.r)
 
 
 def esf_hann_window(esf: np.ndarray, window_width: int = 15) -> np.ndarray:
@@ -151,12 +155,19 @@ def calculate_radial_esf(
     return ESF(esf_uniform_sample, sample_positions_mm)
 
 
+def condition_esf(esf: ESF) -> ESF:
+    isoreg = IsotonicRegression(increasing="auto").fit(esf.r, esf.esf)
+    esf_new = isoreg.predict(esf.r)
+    return ESF(esf_new, esf.r)
+
+
 def calculate_ttf(
     roi: np.ndarray,
     subpixel_center: tuple[float, float],
     max_sample_radius: float,
     pixel_size_mm: float = 1,
     supersample_factor: int = 10,
+    esf_conditioning: bool = False,
 ) -> TTF:
     """
     Radial ESF calculated within the ROI around the subpixel center (row, column).
@@ -177,6 +188,8 @@ def calculate_ttf(
         Physical size of a pixel in millimeters, default=1.
     supersample_factor : int, optional
         Factor by which to supersample the data for subpixel resolution, default=10.
+    esf_conditioning : bool, optional
+        If True, applies monotonic conditioning to ESF before TTF calculation, default=False.
 
     Returns
     -------
@@ -186,7 +199,7 @@ def calculate_ttf(
     esf = calculate_radial_esf(
         roi, subpixel_center, max_sample_radius, pixel_size_mm, supersample_factor
     )
-    return esf2ttf(esf.esf, esf.r)
+    return esf2ttf(esf, esf_conditioning)
 
 
 def get_cutoff_frequency(

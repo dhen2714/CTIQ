@@ -53,6 +53,10 @@ class ContrastInsertROI:
     rod_radius_mm: float
     bounds: ROIBounds  # ROIBounds as defined in the original image
 
+    @property
+    def rod_radius_px(self) -> float:
+        return self.rod_radius_mm / self.pixel_size_mm[0]
+
     def get_central_roi_bounds(self, roi_radius_mm: float) -> CircularROIBounds:
         roi_radius_px = roi_radius_mm / self.pixel_size_mm[0]
         return CircularROIBounds(self.rod_centre[0], self.rod_centre[1], roi_radius_px)
