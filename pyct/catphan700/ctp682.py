@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import warnings
 
 PHANTOM_DIAMETER_MM = 200
+INNER_DIAMETER_MM = 150
 INSERT_ANGULAR_POSITIONS_DEG = [15, 60, 90, 120, 165, 195, 240, 270, 300, 345]
 INSERT_NAMES_HF = [  # head first orientation corresponding to angular positions
     "Bone50",
