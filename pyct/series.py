@@ -265,6 +265,10 @@ class AxialSeries:
         return "\n".join(report)
 
     @property
+    def slice_interval(self) -> float:
+        return abs(self.slice_locations[1] - self.slice_locations[0])
+
+    @property
     def pixel_size(self) -> np.ndarray:
         slice_pixel_dim = self[0][(0x0028, 0x0030)].value
         slice_pixel_dim = np.array(slice_pixel_dim).astype(float)
