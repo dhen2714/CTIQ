@@ -283,6 +283,7 @@ def get_CTP682_contrast_rois(
     supersample_factor: int = 10,
     template_match_padding_mm: float = -30,
     corr_warning_level: float = 0.7,
+    phantom_centre: tuple[int, int] | None = None,
 ) -> dict[str, ContrastInsertROI]:
     """
     Identifies and returns ROIs around contrast inserts in a CTP682 module.
@@ -309,15 +310,22 @@ def get_CTP682_contrast_rois(
     corr_warning_level: float
         For finding phantom centre, raises a warning if the template matching correlation is
         below this value.
+    phantom_centre : tuple[int, int] | None
+        Optional phantom centre coordinates as (row, col) pixels. If provided, skips
+        automatic phantom centre calculation.
 
     Returns
     -------
-    List[ContrastInsertROI]
-        List of ContrastInsertROI objects for each insert
+    dict[str, ContrastInsertROI]
+        Dictionary of ContrastInsertROI objects for each insert, keyed by contrast material name
     """
-    phantom_centre_px = get_CTP682_centre_pixel(
-        slice_image, pixel_size_mm, template_match_padding_mm, corr_warning_level
-    )
+    if phantom_centre is not None:
+        phantom_centre_px = phantom_centre
+    else:
+        phantom_centre_px = get_CTP682_centre_pixel(
+            slice_image, pixel_size_mm, template_match_padding_mm, corr_warning_level
+        )
+
     contrast_insert_dict = {}
 
     # Find each insert's position and create ROI
