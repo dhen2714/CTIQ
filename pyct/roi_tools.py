@@ -2,6 +2,7 @@ from .processing import pixelate
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
+from collections.abc import Iterable
 from dataclasses import dataclass
 from matplotlib.axes import Axes
 
@@ -162,19 +163,39 @@ def draw_rois(
 
 
 def get_roi_bounds_from_centre_pixel(
-    centre_index: tuple[int, int], roi_dim: int
+    centre_index: Iterable[int, int],
+    roi_dim: int | Iterable[int, int],
 ) -> ROIBounds:
-    row_start, row_end = int(centre_index[0] - roi_dim / 2), int(
-        centre_index[0] + roi_dim / 2
+    """
+    Calculate ROI bounds from a center pixel and dimensions.
+
+    Args:
+        centre_index: Tuple of (row, column) indices for the center pixel
+        roi_dim: ROI dimensions. Can be:
+            - int: Creates a square ROI with this side length
+            - Iterable[int, int]: Creates a rectangular ROI with (height, width)
+
+    Returns:
+        ROIBounds: Object containing the calculated row and column start/end indices
+    """
+    if isinstance(roi_dim, int):
+        row_dim = col_dim = roi_dim
+    else:
+        row_dim, col_dim = roi_dim
+
+    row_start, row_end = int(centre_index[0] - row_dim / 2), int(
+        centre_index[0] + row_dim / 2
     )
-    col_start, col_end = int(centre_index[1] - roi_dim / 2), int(
-        centre_index[1] + roi_dim / 2
+    col_start, col_end = int(centre_index[1] - col_dim / 2), int(
+        centre_index[1] + col_dim / 2
     )
     return ROIBounds(row_start, row_end, col_start, col_end)
 
 
 def get_roi_from_centre_pixel(
-    image: np.ndarray, centre_index: tuple[int, int], roi_dim: int
+    image: np.ndarray,
+    centre_index: Iterable[int, int],
+    roi_dim: int | Iterable[int, int],
 ) -> np.ndarray:
     """
     Return square ROI from an image given centre pixel index and roi dimension.
