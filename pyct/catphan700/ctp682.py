@@ -1,4 +1,10 @@
-from ..roi_tools import ROIBounds, CircularROIBounds, get_roi, get_background_roi
+from ..roi_tools import (
+    ROIBounds,
+    CircularROIBounds,
+    get_roi,
+    get_background_roi,
+    get_roi_bounds_from_centre_pixel,
+)
 from ..processing import pixelate, circle_centre_subpixel
 import numpy as np
 from skimage.feature import match_template
@@ -43,6 +49,13 @@ INSERT2ANGLE_FF = {
 }
 INSERT_DIAMETER_MM = 12.2
 INSERT_RADIAL_POS_MM = 58.4
+
+
+@dataclass
+class WireRampROI:
+    name: str
+    roi: np.ndarray
+    bounds: ROIBounds
 
 
 @dataclass
@@ -108,7 +121,8 @@ def create_CTP682_template(
     insert_diameter_mm : float
         Diameter of the contrast inserts in mm.
     template_padding_mm : float
-        Additional padding around the template in mm.
+        Additional padding around the template in mm. Negative values clip
+        the template, useful when FOV is smaller than phantom diameter.
 
     Returns
     -------
@@ -345,3 +359,32 @@ def get_CTP682_contrast_rois(
         contrast_insert_dict[contrast_material] = insert_roi
 
     return contrast_insert_dict
+
+
+def get_wire_ramp_roi(
+    slice_image: np.ndarray,
+    phantom_centre: tuple[int, int],
+    pixel_size_mm: float,
+    which: str = "top",
+) -> WireRampROI:
+    centre_offset_mm = 40
+    centre_offset_px = pixelate(centre_offset_mm / pixel_size_mm)
+
+    roi_width_mm = 80
+    roi_width_px = pixelate(roi_width_mm / pixel_size_mm)
+
+    roi_height_mm = 5
+    roi_height_px = pixelate(roi_height_mm / pixel_size_mm)
+
+    if which == "top":
+        roi_centre = [phantom_centre[0] - centre_offset_px, phantom_centre[1]]
+    elif which == "bottom":
+        roi_centre = [phantom_centre[0] + centre_offset_px, phantom_centre[1]]
+    else:
+        raise ValueError("'which' argument must be 'top' or 'bottom'.")
+
+    roi_bounds = get_roi_bounds_from_centre_pixel(
+        roi_centre, [roi_height_px, roi_width_px]
+    )
+    roi = get_roi(slice_image, roi_bounds)
+    return WireRampROI(which, roi, roi_bounds)

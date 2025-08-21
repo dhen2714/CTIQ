@@ -23,6 +23,7 @@ def detrend(image: np.ndarray, detrend_method: str, mask=None) -> np.ndarray:
     Parameters:
         image (np.ndarray): Input 2D image to be detrended.
         detrend_method (str): Method for detrending. Options are 'mean' or 'poly'.
+        'mean' subtracts the mean, 'poly' substracts a second order polynomial fit.
         mask (np.ndarray, optional): Boolean or binary mask defining which pixels
                                    to use for detrending calculation. If None,
                                    uses all pixels. Must have same shape as image.
