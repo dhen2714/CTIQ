@@ -12,6 +12,7 @@ class NPS1D:
     f: np.ndarray
     num_rois: int = None  # Number of ROIs used to calculate NPS
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
+    pad_size: int = None  # Size of padding used on subrois to calculate NPS
 
     def rebin_by_count(self, n):
         """
@@ -70,6 +71,7 @@ class NPS2D:
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
     pixel_value_mean: float = None
     pixel_value_var: float = None
+    pad_size: int = None  # Size of padding used on subrois to calculate NPS
 
     def get_radial(self) -> NPS1D:
         """Returns radially averaged 1D NPS."""
@@ -222,7 +224,10 @@ def get_nps_subrois(roi: np.ndarray, subroi_dim: int = 128) -> np.ndarray:
 
 
 def nps2d_from_subrois(
-    subrois: np.ndarray, pixel_dim_mm: tuple[float], detrend_method: str = "mean"
+    subrois: np.ndarray,
+    pixel_dim_mm: tuple[float],
+    detrend_method: str = "mean",
+    pad_size: int = 0,
 ) -> NPS2D:
     """
     Calculate 2D noise power spectrum given a 3D array.
@@ -234,13 +239,17 @@ def nps2d_from_subrois(
         subroi = subrois[i]
         # Normalise pixel values in  subrois
         subroi = (global_mean / subroi.mean()) * subroi
-        F = np.fft.fft2(detrend(subroi, detrend_method))
+        subroi_detrend = detrend(subroi, detrend_method)
+        subroi_padded = np.pad(subroi_detrend, pad_size)
+        F = np.fft.fft2(subroi_padded)
         F = np.fft.fftshift(np.abs(F) ** 2)
         nps_stack.append(F)
+
+    ny_new, nx_new = subroi_padded.shape
     nps_stack = np.array(nps_stack)
     NPS = (pixel_dim_mm[0] * pixel_dim_mm[1]) / (nx * ny) * np.mean(nps_stack, axis=0)
-    fx = np.fft.fftshift(np.fft.fftfreq(nx, pixel_dim_mm[1]))
-    fy = np.fft.fftshift(np.fft.fftfreq(ny, pixel_dim_mm[0]))
+    fx = np.fft.fftshift(np.fft.fftfreq(nx_new, pixel_dim_mm[1]))
+    fy = np.fft.fftshift(np.fft.fftfreq(ny_new, pixel_dim_mm[0]))
     return NPS2D(
         NPS,
         fx,
@@ -249,6 +258,7 @@ def nps2d_from_subrois(
         roi_dimensions=(nx, ny),
         pixel_value_mean=global_mean,
         pixel_value_var=subrois.var(),
+        pad_size=pad_size,
     )
 
 
@@ -257,13 +267,14 @@ def calculate_nps2d_multiroi(
     pixel_dim_mm: tuple[float],
     subroi_dim: int = 64,
     detrend_method: str = "poly",
+    pad_size: int = 0,
 ) -> NPS2D:
     """
     Calculate 2D noise power spectrum using multiple ROIs.
     ROIs can be from different slices or different parts of a slice.
     """
     subrois = subrois_from_rois(rois, subroi_dim)
-    return nps2d_from_subrois(subrois, pixel_dim_mm, detrend_method)
+    return nps2d_from_subrois(subrois, pixel_dim_mm, detrend_method, pad_size)
 
 
 def calculate_nps2d(
@@ -271,10 +282,11 @@ def calculate_nps2d(
     pixel_dim_mm: tuple[float],
     subroi_dim: int = 128,
     detrend_method: str = "mean",
+    pad_size: int = 0,
 ) -> NPS2D:
     """
     Calculate 2D noise power spectrum for a single region of interest.
     """
     subroi_stack = get_nps_subrois(roi, subroi_dim)
 
-    return nps2d_from_subrois(subroi_stack, pixel_dim_mm, detrend_method)
+    return nps2d_from_subrois(subroi_stack, pixel_dim_mm, detrend_method, pad_size)
