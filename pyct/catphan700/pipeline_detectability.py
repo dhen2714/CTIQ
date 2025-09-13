@@ -41,11 +41,19 @@ class NPSResult:
 
     @property
     def fpeak(self) -> float:
-        self.npsr.fpeak
+        return self.npsr.fpeak
 
     @property
     def favg(self) -> float:
-        self.npsr.favg
+        return self.npsr.favg
+
+    @property
+    def f(self) -> np.ndarray:
+        return self.npsr.f
+
+    @property
+    def nps(self) -> np.ndarray:
+        return self.npsr.nps
 
 
 @dataclass
@@ -139,6 +147,7 @@ def calculate_nps_ctp714(
     ctarray: np.ndarray,
     pixel_size_mm: tuple[float, float],
     update_centre_pixel: bool = False,
+    pad_size: int = 128,
 ):
     phantom_radius_px = (PHANTOM_DIAMETER_MM / 2) / pixel_size_mm[0]
     inner_diameter_px = INNER_DIAMETER_MM / pixel_size_mm[0]
@@ -185,7 +194,9 @@ def calculate_nps_ctp714(
         roi_bound_record.append(slice_roi_bounds)
 
     all_subrois = subrois_from_rois(all_rois, 64)
-    nps_result = nps2d_from_subrois(all_subrois, pixel_size_mm, detrend_method="poly")
+    nps_result = nps2d_from_subrois(
+        all_subrois, pixel_size_mm, detrend_method="poly", pad_size=pad_size
+    )
     return NPSResult("CTP712", nps_result, roi_bound_record)
 
 
