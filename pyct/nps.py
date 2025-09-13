@@ -77,12 +77,10 @@ class NPS2D:
         """Returns radially averaged 1D NPS."""
         FX, FY = np.meshgrid(self.fx, self.fy)
         FR, _ = cartesian2polar(FX, FY)
-        max_freq = np.min([FX.max(), FY.max()])
-        nps_inds = np.where(FR <= max_freq)
-        num_radial_samples = int(len(self.fx) / 2)
-        fr, npsr = FR[nps_inds].flatten(), self.nps[nps_inds].flatten()
-        fr, npsr = rebin(fr, npsr, num_bins=num_radial_samples)
-        return NPS1D(npsr, fr, self.num_rois, self.roi_dimensions)
+        pitch = self.fx[1] - self.fx[0]
+        fr, npsr = FR.flatten(), self.nps.flatten()
+        fr, npsr = rebin_by_pitch(fr, npsr, pitch=pitch)
+        return NPS1D(npsr, fr, self.num_rois, self.roi_dimensions, self.pad_size)
 
     def get_horizontal(
         self, num_slices: int = 15, exclude_zero_axis: bool = False
@@ -126,7 +124,13 @@ class NPS2D:
             horizontal_nps[mid_point:] + horizontal_nps[mid_point - 1 :: -1]
         ) / 2
 
-        return NPS1D(one_sided_nps, positive_freqs, self.num_rois, self.roi_dimensions)
+        return NPS1D(
+            one_sided_nps,
+            positive_freqs,
+            self.num_rois,
+            self.roi_dimensions,
+            self.pad_size,
+        )
 
     def get_vertical(
         self, num_slices: int = 15, exclude_zero_axis: bool = False
@@ -170,7 +174,13 @@ class NPS2D:
             vertical_nps[mid_point:] + vertical_nps[mid_point - 1 :: -1]
         ) / 2
 
-        return NPS1D(one_sided_nps, positive_freqs, self.num_rois, self.roi_dimensions)
+        return NPS1D(
+            one_sided_nps,
+            positive_freqs,
+            self.num_rois,
+            self.roi_dimensions,
+            self.pad_size,
+        )
 
     def get_radial_frequency_grid(self) -> np.ndarray:
         V, U = np.meshgrid(self.fy, self.fx)
