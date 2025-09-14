@@ -118,6 +118,7 @@ def calculate_insert_ttf(
     cnr_check: bool = True,
     esf_conditioning: bool = False,
     esf_radius_multiplier_px: float = 2.5,
+    window_width: int = 15,
 ) -> TTF:
     if cnr_check:
         cnr = contrast_insert.cnr()
@@ -140,6 +141,7 @@ def calculate_insert_ttf(
         esf_sample_radius_px,
         pixel_size_mm=contrast_insert.pixel_size_mm[0],
         esf_conditioning=esf_conditioning,
+        window_width=window_width,
     )
 
 
