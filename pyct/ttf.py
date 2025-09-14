@@ -51,7 +51,7 @@ def rebin_calc_esf(
     return esf
 
 
-def esf2ttf(esf: ESF, esf_conditioning: bool = False) -> TTF:
+def esf2ttf(esf: ESF, esf_conditioning: bool = False, window_width: int = 15) -> TTF:
     """
     Convert Edge Spread Function to Transfer Function.
 
@@ -70,7 +70,7 @@ def esf2ttf(esf: ESF, esf_conditioning: bool = False) -> TTF:
     lsf = np.convolve(esf.esf, [-1, 1], mode="valid")
     lsf = np.append([lsf[0]], lsf)  # make lsf same length as esf
     # Apply Hann windowing to flatten out tails of LSF
-    hann_window = esf_hann_window(esf.esf)
+    hann_window = esf_hann_window(esf.esf, window_width=window_width)
     lsf = lsf * hann_window
 
     # Compute FFT
@@ -168,6 +168,7 @@ def calculate_ttf(
     pixel_size_mm: float = 1,
     supersample_factor: int = 10,
     esf_conditioning: bool = False,
+    window_width: int = 15,
 ) -> TTF:
     """
     Radial ESF calculated within the ROI around the subpixel center (row, column).
@@ -190,6 +191,8 @@ def calculate_ttf(
         Factor by which to supersample the data for subpixel resolution, default=10.
     esf_conditioning : bool, optional
         If True, applies monotonic conditioning to ESF before TTF calculation, default=False.
+    window_width : int, optional
+        Width of Hann window to apply to LSF before FFT, default=15.
 
     Returns
     -------
@@ -199,7 +202,7 @@ def calculate_ttf(
     esf = calculate_radial_esf(
         roi, subpixel_center, max_sample_radius, pixel_size_mm, supersample_factor
     )
-    return esf2ttf(esf, esf_conditioning)
+    return esf2ttf(esf, esf_conditioning, window_width=window_width)
 
 
 def get_cutoff_frequency(
