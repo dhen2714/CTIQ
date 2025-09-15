@@ -17,11 +17,13 @@ class TTFResult:
     ):
         self.name = result_name
         self.ttf = ttf_result.ttf
+        self.mtf = ttf_result.mtf
         self.esf = ttf_result.esf
         self.lsf = ttf_result.lsf
         self.f = ttf_result.f
         self.r = ttf_result.r
         self.roi = contrast_roi.roi
+        self.contrast = contrast_roi.contrast()
         self.cnr = contrast_roi.cnr()
         self.HU = contrast_roi.mean()
 
