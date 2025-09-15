@@ -1,5 +1,5 @@
 from .ttf import TTF
-from .nps import NPS2D
+from .nps import NPS1D
 import numpy as np
 from scipy.special import j1
 
@@ -73,48 +73,77 @@ def frequency_task_function_fft(task_function: np.ndarray) -> np.ndarray:
     return Wx_real
 
 
-def dprime_npw(
-    df: float, task_function: np.ndarray, ttf2d: np.ndarray, nps2d: np.ndarray
+def hvrf(fr: np.ndarray, fov: float, display: float, distance: float):
+    a1 = 1.5
+    a2 = 0.98
+    a3 = 0.68
+    rho = (fr * fov * distance * np.pi) / (display * 180)
+    return (rho**a1) * np.exp(-a2 * (rho**a3))
+
+
+def dprime(
+    fr: np.ndarray,
+    df: float,
+    task_function: np.ndarray,
+    ttf2d: np.ndarray,
+    nps2d: np.ndarray,
+    eye_filter: np.ndarray | None = None,
+    internal_noise: np.ndarray | None = None,
 ) -> float:
-    """
-    Calculate the non-prewhitening (NPW) observer detectability index (d') for a given imaging task.
+    if eye_filter is None:
+        eye_filter = np.ones(fr.shape)
+    if internal_noise is None:
+        internal_noise = np.zeros(fr.shape)
 
-    The NPW observer model assumes the observer has knowledge of the signal (task function)
-    and system transfer properties (TTF) but does not prewhiten the noise (NPS).
-
-    Task function, ttf2d and nps2d must be sampled on the same spatial frequency grid.
-
-    Parameters
-    ----------
-    df : float
-        Frequency sampling interval in cycles/mm
-    task_function : np.ndarray
-        2D array containing the frequency domain representation of the detection task
-    ttf2d : np.ndarray
-        2D array containing the task transfer function (specific MTF for the task)
-    nps2d : np.ndarray
-        2D array containing the noise power spectrum
-
-    Returns
-    -------
-    float
-        Detectability index d' for the NPW observer model
-
-    Notes
-    -----
-    The NPW d' is calculated as:
-    d' = sqrt((∫∫|W(f)·TTF(f)|²df)² / ∫∫|W(f)·TTF(f)|²·NPS(f)df)
-    where W(f) is the task function, TTF(f) is the task transfer function,
-    and NPS(f) is the noise power spectrum.
-    """
-    d_numerator = np.sum((task_function**2 * ttf2d**2) * df * df) ** 2
-    d_denominator = np.sum((task_function**2 * ttf2d**2 * nps2d) * df * df)
+    d_numerator = np.sum((task_function**2 * ttf2d**2 * eye_filter**2) * df * df) ** 2
+    d_denominator = np.sum(
+        (task_function**2 * ttf2d**2 * nps2d * eye_filter**4 + internal_noise) * df * df
+    )
     d = np.sqrt(d_numerator / d_denominator)
     return d
 
 
+def calculate_dprime_npwei(
+    contrast: float,
+    task_radius: float,
+    ttf_result: TTF,
+    nps_result: NPS1D,
+    fov_size_mm: float = 20,
+    pix_size_mm: float = 0.1,
+    display_zoom: float = 3,
+    display_pixel_pitch_mm: float = 0.2,
+    viewing_distance_mm: float = 500,
+    alpha: float = 5,
+) -> float:
+    num_pixels = int(fov_size_mm / pix_size_mm)
+
+    fx = np.fft.fftshift(np.fft.fftfreq(num_pixels, pix_size_mm))
+    fx_grid, fy_grid = np.meshgrid(fx, fx)
+    fr_grid = np.sqrt(fx_grid**2 + fy_grid**2)
+    df = fx[1] - fx[0]
+
+    ttf2d_new = np.interp(fr_grid, ttf_result.f, ttf_result.mtf)
+    nps2d_new = np.interp(fr_grid, nps_result.f, nps_result.nps)
+
+    W = circular_task_function(contrast, task_radius, fr_grid)
+
+    num_display_pixels = display_zoom * num_pixels
+    display_size_mm = num_display_pixels * display_pixel_pitch_mm
+
+    variance = nps_result.variance
+
+    E = hvrf(fr_grid, fov_size_mm, display_size_mm, viewing_distance_mm)
+    N = alpha * ((viewing_distance_mm / 1000) ** 2) * variance * np.ones(fr_grid.shape)
+    return dprime(fr_grid, df, W, ttf2d_new, nps2d_new, eye_filter=E, internal_noise=N)
+
+
 def calculate_dprime_npw(
-    contrast: float, task_radius: float, ttf_result: TTF, nps_result: NPS2D
+    contrast: float,
+    task_radius: float,
+    ttf_result: TTF,
+    nps_result: NPS1D,
+    fov_size_mm: float = 20,
+    pix_size_mm: float = 0.1,
 ) -> float:
     """
     Calculate the NPW observer detectability index for a circular detection task.
@@ -132,19 +161,33 @@ def calculate_dprime_npw(
         Task transfer function result object containing frequency and MTF data
     nps_result : NPS2D
         2D noise power spectrum result object containing frequency and NPS data
+    fov_size_mm : float, optional
+        Field of view in which task object sits, size in mm.
+    pixel_size_mm : float, optional
+        Pixel size in mm.
 
     Returns
     -------
     float
         Detectability index d' for the NPW observer model
+
+    Notes
+    -----
+    The NPW d' is calculated as:
+    d' = sqrt((∫∫|W(f)·TTF(f)|²df)² / ∫∫|W(f)·TTF(f)|²·NPS(f)df)
+    where W(f) is the task function, TTF(f) is the task transfer function,
+    and NPS(f) is the noise power spectrum.
     """
-    # Get 2D MTF
-    fr = nps_result.get_radial_frequency_grid()
-    ttf2d = np.interp(fr, ttf_result.f, ttf_result.mtf)
+    num_pixels = int(fov_size_mm / pix_size_mm)
 
-    W = circular_task_function(contrast, task_radius, fr)
+    fx = np.fft.fftshift(np.fft.fftfreq(num_pixels, pix_size_mm))
+    df = fx[1] - fx[0]
+    fx_grid, fy_grid = np.meshgrid(fx, fx)
+    fr_grid = np.sqrt(fx_grid**2 + fy_grid**2)
 
-    nps2d = nps_result.nps
-    df = np.abs(nps_result.fx[1] - nps_result.fx[0])
+    ttf2d_new = np.interp(fr_grid, ttf_result.f, ttf_result.mtf)
+    nps2d_new = np.interp(fr_grid, nps_result.f, nps_result.nps)
 
-    return dprime_npw(df, W, ttf2d, nps2d)
+    W = circular_task_function(contrast, task_radius, fr_grid)
+
+    return dprime(fr_grid, df, W, ttf2d_new, nps2d_new)
