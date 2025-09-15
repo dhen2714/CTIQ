@@ -10,6 +10,7 @@ class NPS1D:
 
     nps: np.ndarray
     f: np.ndarray
+    variance: float = None
     num_rois: int = None  # Number of ROIs used to calculate NPS
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
     pad_size: int = None  # Size of padding used on subrois to calculate NPS
@@ -56,6 +57,10 @@ class NPS1D:
         smoothed_nps = smooth(self.nps, window_size=3)
         return np.abs(self.f[np.where(smoothed_nps == smoothed_nps.max())][0])
 
+    @property
+    def noise(self) -> float:
+        return np.sqrt(self.variance)
+
     def __len__(self):
         return len(self.nps)
 
@@ -67,6 +72,7 @@ class NPS2D:
     nps: np.ndarray
     fx: np.array  # dimension across different columns
     fy: np.array  # dimension across different rows
+    variance: float = None
     num_rois: int = None  # Number of ROIs used to calculate NPS
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
     pixel_value_mean: float = None
@@ -80,7 +86,9 @@ class NPS2D:
         pitch = self.fx[1] - self.fx[0]
         fr, npsr = FR.flatten(), self.nps.flatten()
         fr, npsr = rebin_by_pitch(fr, npsr, pitch=pitch)
-        return NPS1D(npsr, fr, self.num_rois, self.roi_dimensions, self.pad_size)
+        return NPS1D(
+            npsr, fr, self.variance, self.num_rois, self.roi_dimensions, self.pad_size
+        )
 
     def get_horizontal(
         self, num_slices: int = 15, exclude_zero_axis: bool = False
@@ -127,6 +135,7 @@ class NPS2D:
         return NPS1D(
             one_sided_nps,
             positive_freqs,
+            self.variance,
             self.num_rois,
             self.roi_dimensions,
             self.pad_size,
@@ -177,6 +186,7 @@ class NPS2D:
         return NPS1D(
             one_sided_nps,
             positive_freqs,
+            self.variance,
             self.num_rois,
             self.roi_dimensions,
             self.pad_size,
@@ -189,6 +199,10 @@ class NPS2D:
     @property
     def shape(self) -> tuple[int]:
         return self.nps.shape
+
+    @property
+    def noise(self) -> float:
+        return np.sqrt(self.variance)
 
 
 def get_subroi_bounds(roi: np.ndarray, subroi_dim: int = 128) -> list[ROIBounds]:
@@ -244,7 +258,16 @@ def nps2d_from_subrois(
     """
     global_mean = subrois.mean()
     M, ny, nx = subrois.shape
+    ny_new, nx_new = ny + 2 * pad_size, nx + 2 * pad_size
+    norm = (pixel_dim_mm[0] * pixel_dim_mm[1]) / (nx * ny)
+
+    fx = np.fft.fftshift(np.fft.fftfreq(nx_new, pixel_dim_mm[1]))
+    fy = np.fft.fftshift(np.fft.fftfreq(ny_new, pixel_dim_mm[0]))
+    dfx = fx[1] - fx[0]
+    dfy = fy[1] - fy[0]
+
     nps_stack = []
+    variances = []
     for i in range(M):
         subroi = subrois[i]
         # Normalise pixel values in  subrois
@@ -252,18 +275,20 @@ def nps2d_from_subrois(
         subroi_detrend = detrend(subroi, detrend_method)
         subroi_padded = np.pad(subroi_detrend, pad_size)
         F = np.fft.fft2(subroi_padded)
-        F = np.fft.fftshift(np.abs(F) ** 2)
-        nps_stack.append(F)
+        subroi_nps = norm * np.fft.fftshift(np.abs(F) ** 2)
+        nps_stack.append(subroi_nps)
+        variance = np.sum(subroi_nps) * dfx * dfy
+        variances.append(variance)
 
-    ny_new, nx_new = subroi_padded.shape
+    variance = np.mean(variances)
     nps_stack = np.array(nps_stack)
-    NPS = (pixel_dim_mm[0] * pixel_dim_mm[1]) / (nx * ny) * np.mean(nps_stack, axis=0)
-    fx = np.fft.fftshift(np.fft.fftfreq(nx_new, pixel_dim_mm[1]))
-    fy = np.fft.fftshift(np.fft.fftfreq(ny_new, pixel_dim_mm[0]))
+    NPS = np.mean(nps_stack, axis=0)
+
     return NPS2D(
         NPS,
         fx,
         fy,
+        variance=variance,
         num_rois=M,
         roi_dimensions=(nx, ny),
         pixel_value_mean=global_mean,
