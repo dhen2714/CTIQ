@@ -91,12 +91,17 @@ class ContrastInsertROI:
         exclusion_roi_bounds = self.get_central_roi_bounds(exclusion_radius_mm)
         return get_background_roi(self.roi, exclusion_roi_bounds).std()
 
-    def cnr(
+    def contrast(
         self, measure_radius_mm: float = 5, exclusion_radius_mm: float = 8
     ) -> float:
         foreground = self.mean(measure_radius_mm)
         background = self.background_mean(exclusion_radius_mm)
-        contrast = foreground - background
+        return foreground - background
+
+    def cnr(
+        self, measure_radius_mm: float = 5, exclusion_radius_mm: float = 8
+    ) -> float:
+        contrast = self.contrast(measure_radius_mm, exclusion_radius_mm)
         noise = self.background_std(exclusion_radius_mm)
         return contrast / noise
 
