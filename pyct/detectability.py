@@ -2,6 +2,7 @@ from .ttf import TTF
 from .nps import NPS1D
 import numpy as np
 from scipy.special import j1
+from dataclasses import dataclass
 
 
 def circular_task_function(
@@ -12,8 +13,8 @@ def circular_task_function(
 
     Parameters
     ----------
-    contrast : float, optional
-        Contrast value of the circle (default=10)
+    contrast : float
+        Contrast value of the circle
     radius_mm : float
         Radius of the circle in mm
     fr : np.ndarray
@@ -54,6 +55,7 @@ def circular_task_function(
 def frequency_task_function_fft(task_function: np.ndarray) -> np.ndarray:
     """
     Convert frequency domain task function to spatial domain using inverse FFT.
+    Useful for visualising task function in spatial domain.
 
     Parameters
     ----------
@@ -103,6 +105,27 @@ def dprime(
     return d
 
 
+@dataclass
+class ResampledData:
+    df: float
+    fr: np.ndarray
+    ttf2d: np.ndarray
+    nps2d: np.ndarray
+
+
+def get_resampled_data(
+    ttf_result: TTF, nps_result: NPS1D, num_pixels: int, pix_size_mm: float
+) -> ResampledData:
+    fx = np.fft.fftshift(np.fft.fftfreq(num_pixels, pix_size_mm))
+    fx_grid, fy_grid = np.meshgrid(fx, fx)
+    fr_grid = np.sqrt(fx_grid**2 + fy_grid**2)
+    df = fx[1] - fx[0]
+
+    ttf2d_new = np.interp(fr_grid, ttf_result.f, ttf_result.mtf)
+    nps2d_new = np.interp(fr_grid, nps_result.f, nps_result.nps)
+    return ResampledData(df, fr_grid, ttf2d_new, nps2d_new)
+
+
 def calculate_dprime_npwei(
     contrast: float,
     task_radius: float,
@@ -116,25 +139,26 @@ def calculate_dprime_npwei(
     alpha: float = 5,
 ) -> float:
     num_pixels = int(fov_size_mm / pix_size_mm)
+    res = get_resampled_data(ttf_result, nps_result, num_pixels, pix_size_mm)
 
-    fx = np.fft.fftshift(np.fft.fftfreq(num_pixels, pix_size_mm))
-    fx_grid, fy_grid = np.meshgrid(fx, fx)
-    fr_grid = np.sqrt(fx_grid**2 + fy_grid**2)
-    df = fx[1] - fx[0]
-
-    ttf2d_new = np.interp(fr_grid, ttf_result.f, ttf_result.mtf)
-    nps2d_new = np.interp(fr_grid, nps_result.f, nps_result.nps)
-
-    W = circular_task_function(contrast, task_radius, fr_grid)
+    W = circular_task_function(contrast, task_radius, res.fr)
 
     num_display_pixels = display_zoom * num_pixels
     display_size_mm = num_display_pixels * display_pixel_pitch_mm
-
     variance = nps_result.variance
 
-    E = hvrf(fr_grid, fov_size_mm, display_size_mm, viewing_distance_mm)
-    N = alpha * ((viewing_distance_mm / 1000) ** 2) * variance * np.ones(fr_grid.shape)
-    return dprime(fr_grid, df, W, ttf2d_new, nps2d_new, eye_filter=E, internal_noise=N)
+    E = hvrf(res.fr, fov_size_mm, display_size_mm, viewing_distance_mm)
+    N = alpha * ((viewing_distance_mm / 1000) ** 2) * variance * np.ones(res.fr.shape)
+
+    return dprime(
+        res.fr,
+        res.df,
+        W,
+        res.ttf2d,
+        res.nps2d,
+        eye_filter=E,
+        internal_noise=N,
+    )
 
 
 def calculate_dprime_npw(
@@ -179,15 +203,8 @@ def calculate_dprime_npw(
     and NPS(f) is the noise power spectrum.
     """
     num_pixels = int(fov_size_mm / pix_size_mm)
+    res = get_resampled_data(ttf_result, nps_result, num_pixels, pix_size_mm)
 
-    fx = np.fft.fftshift(np.fft.fftfreq(num_pixels, pix_size_mm))
-    df = fx[1] - fx[0]
-    fx_grid, fy_grid = np.meshgrid(fx, fx)
-    fr_grid = np.sqrt(fx_grid**2 + fy_grid**2)
+    W = circular_task_function(contrast, task_radius, res.fr)
 
-    ttf2d_new = np.interp(fr_grid, ttf_result.f, ttf_result.mtf)
-    nps2d_new = np.interp(fr_grid, nps_result.f, nps_result.nps)
-
-    W = circular_task_function(contrast, task_radius, fr_grid)
-
-    return dprime(fr_grid, df, W, ttf2d_new, nps2d_new)
+    return dprime(res.fr, res.df, W, res.ttf2d, res.nps2d)
