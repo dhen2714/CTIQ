@@ -31,6 +31,7 @@ class SliceNoiseResult:
     noise_index: float
     stddev_distribution: np.ndarray
     stddev_image: np.ndarray
+    hu_bounds: tuple[int, int]
 
 
 @dataclass
@@ -44,6 +45,7 @@ class GNIResult:
     all_stddev_distributions: (
         np.ndarray
     )  # Standard deviation distributions for all slices
+    hu_bounds: tuple[int, int]
 
     @property
     def result_dropna(self):
@@ -51,7 +53,9 @@ class GNIResult:
 
 
 def calculate_slice_noise_index(
-    slice_img: np.ndarray, kernel_size: int = 30
+    slice_img: np.ndarray,
+    kernel_size: int = 30,
+    hu_bounds: tuple[int, int] = (-300, 300),
 ) -> SliceNoiseResult:
     """
     Calculate the Noise Index for a single CT slice and return the standard deviation distribution and image.
@@ -62,6 +66,8 @@ def calculate_slice_noise_index(
         A 2D numpy array representing a single CT slice.
     kernel_size : int, optional (default=30)
         The size of the kernel used for local variance calculation.
+    hu_bounds : tuple[int, int], optional (default=(-300, 300))
+        Pixels with HU values outside the defined bounds will be excluded from GNI calculation.
 
     Returns:
     --------
@@ -85,20 +91,22 @@ def calculate_slice_noise_index(
     variance_image = local_average_squared_image - local_average_image**2
     stddev_image = np.sqrt(variance_image)
 
-    soft_tissue_mask = (float_arr >= -300) & (float_arr <= 300)
+    soft_tissue_mask = (float_arr >= hu_bounds[0]) & (float_arr <= hu_bounds[1])
     stddevs = stddev_image[soft_tissue_mask]
     stddevs = stddevs[~(stddevs == 0)]  # Ignore textureless parts of image.
     stddevs = stddevs[~np.isnan(stddevs)]
 
     if stddevs.size == 0:
-        return SliceNoiseResult(np.nan, np.array([]), stddev_image)
+        return SliceNoiseResult(np.nan, np.array([]), stddev_image, hu_bounds)
     else:
         noise_index = find_image_histogram_peak(stddevs)
-        return SliceNoiseResult(noise_index, stddevs, stddev_image)
+        return SliceNoiseResult(noise_index, stddevs, stddev_image, hu_bounds)
 
 
 def calculate_global_noise_index(
-    ctseries: np.ndarray, kernel_size: int = 30
+    ctseries: np.ndarray,
+    kernel_size: int = 30,
+    hu_bounds: tuple[int, int] = (-300, 300),
 ) -> GNIResult:
     """
     Calculate the Global Noise Index (GNI) for a series of CT images.
@@ -116,6 +124,9 @@ def calculate_global_noise_index(
     kernel_size : int, optional (default=30)
         The size of the kernel used for local variance calculation. This determines the
         local neighborhood for noise estimation.
+
+    hu_bounds : tuple[int, int], optional (default=(-300, 300))
+        Pixels with HU values outside the defined bounds will be excluded from GNI calculation.
 
     Returns:
     --------
@@ -151,12 +162,17 @@ def calculate_global_noise_index(
     all_stddev_distributions = []
 
     for i, slice_img in enumerate(ctseries):
-        slice_result = calculate_slice_noise_index(slice_img, kernel_size)
+        slice_result = calculate_slice_noise_index(slice_img, kernel_size, hu_bounds)
         gnis[i] = slice_result.noise_index
         all_stddev_distributions.append(slice_result.stddev_distribution)
         stddev_images[i] = slice_result.stddev_image
 
     overall_gni = gnis.mean()
     return GNIResult(
-        overall_gni, kernel_size, stddev_images, gnis, all_stddev_distributions
+        overall_gni,
+        kernel_size,
+        stddev_images,
+        gnis,
+        all_stddev_distributions,
+        hu_bounds,
     )
