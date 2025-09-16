@@ -1,9 +1,10 @@
 from .ctp682 import ContrastInsertROI, INNER_DIAMETER_MM, PHANTOM_DIAMETER_MM
 from .ctp682 import get_CTP682_contrast_rois
 from .localisation import locate_all_segments
+from ..detectability import calculate_dprime_npw, calculate_dprime_npwei
 from ..processing import detrend, circle_centre_subpixel
 from ..roi_tools import ROIBounds, get_roi_bounds_from_centre_pixel, get_roi
-from ..nps import NPS2D, subrois_from_rois, nps2d_from_subrois
+from ..nps import NPS1D, NPS2D, subrois_from_rois, nps2d_from_subrois
 from ..series import AxialSeries
 from ..ttf import TTF, calculate_ttf
 import numpy as np
@@ -59,18 +60,28 @@ class NPSResult:
 
 
 @dataclass
+class DetectabilitySettings:
+    observer: str = "NPW"
+    task_diameter_mm: float = 1
+    task_fov_mm: float = 20
+    task_pix_mm: float = 0.1
+    display_zoom: float = 3
+    display_pitch_mm: float = 0.2
+    display_distance_mm: float = 500
+    display_alpha: float = 5
+
+    @property
+    def task_radius_mm(self) -> float:
+        return self.task_diameter_mm / 2
+
+
+@dataclass
 class DetectabilityResult:
     name: str
+    d: float
     ttf: TTFResult
     nps: NPSResult
-
-
-def pipeline_detectability():
-    pass
-
-
-def calculate_detectability(series_dir: str | Path):
-    pass
+    settings: DetectabilitySettings
 
 
 def get_nps_ctp714_indices(
@@ -85,7 +96,48 @@ def get_nps_ctp714_indices(
     return np.concatenate([segment_indices[:start_index], segment_indices[end_index:]])
 
 
-def catphan700_auto_detectability(series_dir: str | Path):
+def calculate_detectability(
+    ttf_result: TTF,
+    nps_result: NPS1D,
+    task_contrast: float,
+    settings: None | DetectabilitySettings = None,
+) -> float:
+    if settings is None:
+        settings = DetectabilitySettings()
+
+    if settings.observer.lower() == "npw":
+        d = calculate_dprime_npw(
+            task_contrast,
+            settings.task_radius_mm,
+            ttf_result,
+            nps_result,
+            settings.task_fov_mm,
+            settings.task_pix_mm,
+        )
+    elif settings.observer.lower() == "npwei":
+        d = calculate_dprime_npwei(
+            task_contrast,
+            settings.task_radius_mm,
+            ttf_result,
+            nps_result,
+            settings.task_fov_mm,
+            settings.task_pix_mm,
+            settings.display_zoom,
+            settings.display_pitch_mm,
+            settings.display_distance_mm,
+            settings.display_alpha,
+        )
+    else:
+        raise ValueError("Observer model must be 'NPW' or 'NPWEi'.")
+    return d
+
+
+def catphan700_auto_detectability(
+    series_dir: str | Path, detectability_settings: None | DetectabilitySettings = None
+):
+    if detectability_settings is None:
+        detectability_settings = DetectabilitySettings()  # use default settings
+
     ctseries = AxialSeries(series_dir, validate_dimensions=True)
     ctarray = ctseries.get_array()
     pix_dim = ctseries.pixel_size
@@ -107,11 +159,19 @@ def catphan700_auto_detectability(series_dir: str | Path):
     nps_indices = get_nps_ctp714_indices(nps_segment.indices, slice_interval)
     nps_array = ctarray[nps_indices]
     nps_result = calculate_nps_ctp714(nps_array, pix_dim)
+    nps1d = nps_result.npsr
 
-    return {
-        ttfname: DetectabilityResult(ttfname, ttf_result, nps_result)
-        for ttfname, ttf_result in ttf_results_dict.items()
-    }
+    detectability_results_dict = dict()
+
+    for material_name, ttf_result in ttf_results_dict.items():
+        contrast = ttf_result.contrast
+        d = calculate_detectability(ttf_result, nps1d, contrast, detectability_settings)
+        dresult = DetectabilityResult(
+            material_name, d, ttf_result, nps_result, detectability_settings
+        )
+        detectability_results_dict[material_name] = dresult
+
+    return detectability_results_dict
 
 
 def calculate_insert_ttf(

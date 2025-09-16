@@ -3,7 +3,7 @@
 authors = [{name = "David Henry", email = "david.henry3@health.nsw.gov.au"}]
 description = "Tools for CT image quality quantification and analysis."
 name = "pyct"
-version = "1.0.14"
+version = "1.0.15"
 
 classifiers = [
   "Programming Language :: Python :: 3",
