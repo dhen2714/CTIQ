@@ -274,3 +274,14 @@ def circle_centre_subpixel(
     row_centre = (circle_centre[0][0] - 0.5) / supersample_factor
     column_centre = (circle_centre[1][0] - 0.5) / supersample_factor
     return row_centre, column_centre
+
+
+def window_level(image: np.ndarray, window: int, level: int) -> np.ndarray:
+    image_wl = image.copy()
+    window_start = level - window / 2
+    window_end = level + window / 2
+    left_mask = image < window_start
+    right_mask = image > window_end
+    image_wl[left_mask] = window_start
+    image_wl[right_mask] = window_end
+    return rescale_pixels(image_wl)
