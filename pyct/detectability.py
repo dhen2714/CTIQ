@@ -52,7 +52,9 @@ def circular_task_function(
     return task
 
 
-def frequency_task_function_fft(task_function: np.ndarray) -> np.ndarray:
+def frequency_task_function_fft(
+    task_function: np.ndarray, pixel_size_mm: float = 1
+) -> np.ndarray:
     """
     Convert frequency domain task function to spatial domain using inverse FFT.
     Useful for visualising task function in spatial domain.
@@ -70,8 +72,8 @@ def frequency_task_function_fft(task_function: np.ndarray) -> np.ndarray:
     W_centred = np.fft.fftshift(task_function)
     Wx = np.fft.ifft2(W_centred)
     Wx = np.fft.fftshift(Wx)
-    # Factor 1/2pi accounts for continuous vs discrete FT
-    Wx_real = np.real(Wx) * (2 * np.pi)
+    scale_factor = 1 / pixel_size_mm**2
+    Wx_real = np.real(Wx) * scale_factor
     return Wx_real
 
 
