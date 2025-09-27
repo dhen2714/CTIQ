@@ -25,6 +25,7 @@ class TTF:
     lsf: np.ndarray
     f: np.ndarray
     r: np.ndarray
+    esf_conditioning: bool | None = None
 
     @property
     def ttf(self) -> np.ndarray:
@@ -89,7 +90,7 @@ def esf2ttf(esf: ESF, esf_conditioning: bool = False, window_width: int = 15) ->
     fn_index = int(len(MTF) / 2)
     frequencies, MTF = frequencies[:fn_index], MTF[:fn_index]
 
-    return TTF(MTF, esf.esf, lsf, frequencies, esf.r)
+    return TTF(MTF, esf.esf, lsf, frequencies, esf.r, esf_conditioning=esf_conditioning)
 
 
 def esf_hann_window(esf: np.ndarray, window_width: int = 15) -> np.ndarray:
