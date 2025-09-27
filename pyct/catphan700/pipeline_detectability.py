@@ -6,7 +6,7 @@ from ..processing import detrend, circle_centre_subpixel
 from ..roi_tools import ROIBounds, get_roi_bounds_from_centre_pixel, get_roi
 from ..nps import NPS1D, NPS2D, subrois_from_rois, nps2d_from_subrois
 from ..series import AxialSeries
-from ..ttf import TTF, calculate_ttf
+from ..ttf import TTF, calculate_ttf, get_cutoff_frequency
 import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +27,19 @@ class TTFResult:
         self.contrast = contrast_roi.contrast()
         self.cnr = contrast_roi.cnr()
         self.HU = contrast_roi.mean()
+        self.esf_conditioning = ttf_result.esf_conditioning
+
+    @property
+    def f50(self) -> float:
+        return get_cutoff_frequency(
+            self.f, self.ttf, cutoff_point=0.5, mtf_threshold=0.49
+        )
+
+    @property
+    def f10(self) -> float:
+        return get_cutoff_frequency(
+            self.f, self.ttf, cutoff_point=0.1, mtf_threshold=0.09
+        )
 
 
 class NPSResult:
@@ -60,10 +73,21 @@ class NPSResult:
 
 
 @dataclass
+class TTFSettings:
+    detrend_method: str = "poly"
+    samples: str | int = "all"
+    cnr_check: bool = True
+    esf_conditioning: bool = False
+    esf_radius_multiplier_px: float = 2.5
+    window_width: int = 15
+
+
+@dataclass
 class NPSSettings:
     samples: str | int = "all"
     update_centre: bool = False
     pad_size: int = 64
+    detrend_method: str = "poly"
 
 
 @dataclass
@@ -89,6 +113,8 @@ class DetectabilityResult:
     ttf: TTFResult
     nps: NPSResult
     settings: DetectabilitySettings
+    ttf_settings: TTFSettings
+    nps_settings: NPSSettings
 
 
 def get_nps_ctp714_indices(
@@ -156,10 +182,13 @@ def calculate_detectability(
 def catphan700_auto_detectability(
     series_dir: str | Path,
     detectability_settings: None | DetectabilitySettings = None,
+    ttf_settings: None | TTFSettings = None,
     nps_settings: None | NPSSettings = None,
 ):
     if detectability_settings is None:
         detectability_settings = DetectabilitySettings()  # use default settings
+    if ttf_settings is None:
+        ttf_settings = TTFSettings()
     if nps_settings is None:
         nps_settings = NPSSettings()
 
@@ -178,7 +207,16 @@ def catphan700_auto_detectability(
     }
     ttf_segment = segment_dict["CTP682"]
     ttf_segment_averaged = ctarray[ttf_segment.indices].mean(axis=0)
-    ttf_results_dict = calculate_all_ttfs(ttf_segment_averaged, pix_dim, orientation)
+    ttf_results_dict = calculate_all_ttfs(
+        ttf_segment_averaged,
+        pix_dim,
+        orientation,
+        detrend_method=ttf_settings.detrend_method,
+        cnr_check=ttf_settings.cnr_check,
+        esf_conditioning=ttf_settings.esf_conditioning,
+        esf_radius_multiplier_px=ttf_settings.esf_radius_multiplier_px,
+        window_width=ttf_settings.window_width,
+    )
 
     nps_segment = segment_dict["CTP714"]
     nps_indices = get_nps_ctp714_indices(
@@ -196,7 +234,13 @@ def catphan700_auto_detectability(
         contrast = ttf_result.contrast
         d = calculate_detectability(ttf_result, nps1d, contrast, detectability_settings)
         dresult = DetectabilityResult(
-            material_name, d, ttf_result, nps_result, detectability_settings
+            material_name,
+            d,
+            ttf_result,
+            nps_result,
+            detectability_settings,
+            ttf_settings,
+            nps_settings,
         )
         detectability_results_dict[material_name] = dresult
 
@@ -294,12 +338,26 @@ def calculate_nps_ctp714(
 
 
 def calculate_all_ttfs(
-    ctslice: np.ndarray, pixel_size_mm: tuple[float, float], orientation: str = "HFS"
+    ctslice: np.ndarray,
+    pixel_size_mm: tuple[float, float],
+    orientation: str = "HFS",
+    detrend_method: str = "poly",
+    cnr_check: bool = True,
+    esf_conditioning: bool = False,
+    esf_radius_multiplier_px: float = 2.5,
+    window_width: int = 15,
 ) -> dict[TTFResult]:
     contrast_insert_dict = get_CTP682_contrast_rois(ctslice, pixel_size_mm, orientation)
     results_dict = dict()
     for insert_name, contrast_insert in contrast_insert_dict.items():
-        ttf_val = calculate_insert_ttf(contrast_insert)
+        ttf_val = calculate_insert_ttf(
+            contrast_insert,
+            detrend_method,
+            cnr_check,
+            esf_conditioning,
+            esf_radius_multiplier_px,
+            window_width,
+        )
         ttf_result = TTFResult(insert_name, contrast_insert, ttf_val)
         results_dict[insert_name] = ttf_result
 
