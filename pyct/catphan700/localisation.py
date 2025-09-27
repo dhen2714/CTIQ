@@ -97,7 +97,7 @@ def find_high_variance_centre_location(
     slice_locations: np.ndarray,
     variance_profile: np.ndarray,
     upsample_factor: int = 10,
-    min_segment_length_mm: float = 35,
+    min_segment_length_mm: float = 30,
 ) -> float:
     """
     Locate the CTP721/CTP723 segment which has consistently high variance.
@@ -136,7 +136,8 @@ def find_high_variance_centre_location(
     std_var = np.std(variance_profile_upsampled)
 
     # Find regions with variance significantly above mean
-    high_var_mask = variance_profile_upsampled > (mean_var + 1.5 * std_var)
+    # Standard deviation multiplier of 1 empirically found to be satisfactory.
+    high_var_mask = variance_profile_upsampled > (mean_var + 1 * std_var)
 
     # Find the longest continuous segment of high variance
     min_segment_length = (
@@ -208,6 +209,8 @@ def locate_all_segments(
     slice_locations: np.ndarray,
     orientation: str = "HFS",
     segment_buffer_mm: float = 2,
+    min_segment_length_mm: float = 30,
+    profile_upsample: int = 10,
 ) -> list[Catphan700Segment]:
     """
     Identify all phantom segments based on the variance profile.
@@ -248,6 +251,8 @@ def locate_all_segments(
     ctp721_723_centre_mm = find_high_variance_centre_location(
         slice_locations[profile_start:profile_end],
         variance_profile[profile_start:profile_end],
+        upsample_factor=profile_upsample,
+        min_segment_length_mm=min_segment_length_mm,
     )
 
     # Create segments list
