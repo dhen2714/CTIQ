@@ -60,6 +60,13 @@ class NPSResult:
 
 
 @dataclass
+class NPSSettings:
+    samples: str | int = "all"
+    update_centre: bool = False
+    pad_size: int = 64
+
+
+@dataclass
 class DetectabilitySettings:
     observer: str = "NPW"
     task_diameter_mm: float = 1
@@ -85,7 +92,7 @@ class DetectabilityResult:
 
 
 def get_nps_ctp714_indices(
-    segment_indices: np.ndarray, slice_interval: float
+    segment_indices: np.ndarray, slice_interval: float, samples: str | int = "all"
 ) -> np.ndarray:
     # Take 10 mm in the centre of the segment and ignore these slices
     central_buffer_len = np.ceil(10 / slice_interval).astype(int)
@@ -93,7 +100,21 @@ def get_nps_ctp714_indices(
     array_length = len(segment_indices)
     start_index = (array_length - central_buffer_len) // 2
     end_index = start_index + central_buffer_len
-    return np.concatenate([segment_indices[:start_index], segment_indices[end_index:]])
+    valid_indices = np.concatenate(
+        [segment_indices[:start_index], segment_indices[end_index:]]
+    )
+    if samples == "all":
+        return valid_indices
+    elif isinstance(samples, int):
+        if samples <= 0:
+            raise ValueError("Number of samples must be positive")
+        if samples >= len(valid_indices):
+            return valid_indices
+        else:
+            # Randomly sample without replacement
+            return valid_indices[:samples]
+    else:
+        raise ValueError("samples must be 'all' or a positive integer")
 
 
 def calculate_detectability(
@@ -133,10 +154,14 @@ def calculate_detectability(
 
 
 def catphan700_auto_detectability(
-    series_dir: str | Path, detectability_settings: None | DetectabilitySettings = None
+    series_dir: str | Path,
+    detectability_settings: None | DetectabilitySettings = None,
+    nps_settings: None | NPSSettings = None,
 ):
     if detectability_settings is None:
         detectability_settings = DetectabilitySettings()  # use default settings
+    if nps_settings is None:
+        nps_settings = NPSSettings()
 
     ctseries = AxialSeries(series_dir, validate_dimensions=True)
     ctarray = ctseries.get_array()
@@ -156,9 +181,13 @@ def catphan700_auto_detectability(
     ttf_results_dict = calculate_all_ttfs(ttf_segment_averaged, pix_dim, orientation)
 
     nps_segment = segment_dict["CTP714"]
-    nps_indices = get_nps_ctp714_indices(nps_segment.indices, slice_interval)
+    nps_indices = get_nps_ctp714_indices(
+        nps_segment.indices, slice_interval, nps_settings.samples
+    )
     nps_array = ctarray[nps_indices]
-    nps_result = calculate_nps_ctp714(nps_array, pix_dim)
+    nps_result = calculate_nps_ctp714(
+        nps_array, pix_dim, nps_settings.update_centre, nps_settings.pad_size
+    )
     nps1d = nps_result.npsr
 
     detectability_results_dict = dict()
@@ -211,7 +240,7 @@ def calculate_nps_ctp714(
     ctarray: np.ndarray,
     pixel_size_mm: tuple[float, float],
     update_centre_pixel: bool = False,
-    pad_size: int = 128,
+    pad_size: int = 64,
 ):
     phantom_radius_px = (PHANTOM_DIAMETER_MM / 2) / pixel_size_mm[0]
     inner_diameter_px = INNER_DIAMETER_MM / pixel_size_mm[0]
