@@ -47,6 +47,26 @@ class NPS1D:
         fnew, npsnew = rebin_by_pitch(self.f, self.nps, freq_pitch)
         return NPS1D(npsnew, fnew)
 
+    def _get_nps_at_frequency(self, frequency: float, nnps: bool = False) -> float:
+        if frequency < self.f.min() or frequency > self.f.max():
+            raise ValueError(
+                f"Frequency {frequency} is outside the range of available "
+                f"frequencies [{self.f.min()}, {self.f.max()}]"
+            )
+        if nnps:
+            return np.interp(frequency, self.f, self.nnps)
+        else:
+            return np.interp(frequency, self.f, self.nps)
+
+    def nps_value(self, frequency: float) -> float:
+        """
+        Get the NPS value at specified frequency.
+        """
+        return self._get_nps_at_frequency(frequency, nnps=False)
+
+    def nnps_value(self, frequency: float) -> float:
+        return self._get_nps_at_frequency(frequency, nnps=True)
+
     @property
     def nnps(self):
         """NPS normalised by squared pixel value."""
