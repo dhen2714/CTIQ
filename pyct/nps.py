@@ -13,6 +13,8 @@ class NPS1D:
     variance: float = None
     num_rois: int = None  # Number of ROIs used to calculate NPS
     roi_dimensions: tuple[int] = None  # num_columns (nx), num_rows (ny)
+    pixel_value_mean: float = None
+    pixel_value_var: float = None
     pad_size: int = None  # Size of padding used on subrois to calculate NPS
 
     def rebin_by_count(self, n):
@@ -44,6 +46,13 @@ class NPS1D:
         """
         fnew, npsnew = rebin_by_pitch(self.f, self.nps, freq_pitch)
         return NPS1D(npsnew, fnew)
+
+    @property
+    def nnps(self):
+        """NPS normalised by squared pixel value."""
+        if self.pixel_value_mean is None:
+            raise ValueError("Mean pixel value not provided.")
+        return self.nps / (self.pixel_value_mean**2)
 
     @property
     def favg(self):
@@ -87,7 +96,14 @@ class NPS2D:
         fr, npsr = FR.flatten(), self.nps.flatten()
         fr, npsr = rebin_by_pitch(fr, npsr, pitch=pitch)
         return NPS1D(
-            npsr, fr, self.variance, self.num_rois, self.roi_dimensions, self.pad_size
+            npsr,
+            fr,
+            self.variance,
+            self.num_rois,
+            self.roi_dimensions,
+            self.pixel_value_mean,
+            self.pixel_value_var,
+            self.pad_size,
         )
 
     def get_horizontal(
@@ -138,6 +154,8 @@ class NPS2D:
             self.variance,
             self.num_rois,
             self.roi_dimensions,
+            self.pixel_value_mean,
+            self.pixel_value_var,
             self.pad_size,
         )
 
@@ -189,6 +207,8 @@ class NPS2D:
             self.variance,
             self.num_rois,
             self.roi_dimensions,
+            self.pixel_value_mean,
+            self.pixel_value_var,
             self.pad_size,
         )
 
