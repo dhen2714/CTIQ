@@ -1,3 +1,4 @@
+from ..global_noise_index import find_image_histogram_peak
 from ..roi_tools import (
     ROIBounds,
     CircularROIBounds,
@@ -56,6 +57,7 @@ class WireRampROI:
     name: str
     roi: np.ndarray
     bounds: ROIBounds
+    pixel_size_mm: float
 
 
 @dataclass
@@ -392,4 +394,13 @@ def get_wire_ramp_roi(
         roi_centre, [roi_height_px, roi_width_px]
     )
     roi = get_roi(slice_image, roi_bounds)
-    return WireRampROI(which, roi, roi_bounds)
+    return WireRampROI(which, roi, roi_bounds, pixel_size_mm)
+
+
+def measure_recon_slice_width(roi: np.ndarray, pixel_size_mm: float) -> float:
+    background_val = find_image_histogram_peak(roi, num_bins=100)
+    ramp_fwhm_val = (roi.max() - background_val) / 2
+    mask = roi > (ramp_fwhm_val + background_val)
+    line_prof = mask.sum(axis=0)
+    count = len(np.where(line_prof > 0)[0])
+    return count * pixel_size_mm * 0.42
